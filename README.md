@@ -53,6 +53,10 @@ becomes read-only and shows a banner: fix the file in the text editor, the model
 
 ## Development
 
+`@masagroup/ecore` is published on [GitHub Packages](https://github.com/orgs/masagroup/packages), which
+requires a token even for public packages: put `//npm.pkg.github.com/:_authToken=<token with read:packages>`
+in your user `.npmrc` (the scope mapping itself is in the project `.npmrc`).
+
 ```bash
 npm install
 npm run compile      # bundles dist/extension.js and dist/webview.js

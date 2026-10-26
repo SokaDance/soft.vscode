@@ -8,6 +8,10 @@ on:
     branches: [master]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
@@ -19,8 +23,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          # @masagroup/ecore is published on GitHub Packages, which needs a token even for public packages
+          registry-url: https://npm.pkg.github.com
+          scope: "@masagroup"
       - name: Install dependencies
         run: npm ci --no-fund
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Typecheck
         run: npm run typecheck
       - name: Test
