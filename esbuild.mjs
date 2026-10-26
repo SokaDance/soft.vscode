@@ -10,7 +10,7 @@ const extensionConfig = {
     outfile: "dist/extension.js",
     format: "cjs",
     platform: "node",
-    target: "node20",
+    target: "node22",
     external: ["vscode"],
     sourcemap: !production,
     minify: production,
