@@ -7,6 +7,8 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+  # reused by release.yaml to build the tagged commit
+  workflow_call:
 
 permissions:
   contents: read

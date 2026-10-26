@@ -68,6 +68,18 @@ npm run package      # builds ecorium-<version>.vsix
 
 Press `F5` in VS Code to launch an Extension Development Host with the `samples` folder.
 
+## Releasing
+
+Releases are driven by `vX.Y.Z` tags, like the other Soft repositories.
+
+1. In a pull request, bump the version and describe the changes:
+   `npm version X.Y.Z --no-git-tag-version`, then add a `## X.Y.Z` section to `CHANGELOG.md`.
+2. After the merge, tag the merge commit and push the tag:
+   `git tag vX.Y.Z masa/master` then `git push masa vX.Y.Z`.
+3. The **Release** workflow checks that the tag matches `package.json`, builds and tests the tagged commit,
+   and creates the GitHub release "Ecorium X.Y.Z" with `ecorium-X.Y.Z.vsix` attached and the CHANGELOG
+   section as release notes. A tag with a suffix (`v1.0.0-rc.1`) produces a pre-release.
+
 ## License
 
 [MPL-2.0](LICENSE) – Copyright (c) MASA Group.
