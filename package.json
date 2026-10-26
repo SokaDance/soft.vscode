@@ -1,0 +1,155 @@
+{
+  "name": "ecorium",
+  "displayName": "Ecorium - Ecore Model Editor",
+  "description": "Tree and properties editor for EMF Ecore metamodels (.ecore), powered by Soft TS (@masagroup/ecore).",
+  "version": "0.1.0",
+  "publisher": "masagroup",
+  "license": "MPL-2.0",
+  "author": "MASA Group",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/masagroup/soft.vscode.git"
+  },
+  "homepage": "https://github.com/masagroup/soft",
+  "bugs": {
+    "url": "https://github.com/masagroup/soft.vscode/issues"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "emf",
+    "ecore",
+    "metamodel",
+    "modeling",
+    "xmi"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "xml",
+        "extensions": [
+          ".ecore"
+        ]
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "ecorium.ecoreEditor",
+        "displayName": "Ecorium Ecore Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.ecore"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ecorium.openWithEcorium",
+        "title": "Open with Ecorium",
+        "category": "Ecorium",
+        "icon": "$(symbol-class)"
+      },
+      {
+        "command": "ecorium.openAsText",
+        "title": "Open as Text",
+        "category": "Ecorium",
+        "icon": "$(code)"
+      },
+      {
+        "command": "ecorium.newModel",
+        "title": "New Ecore Model",
+        "category": "Ecorium",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "ecorium.reload",
+        "title": "Reload Model",
+        "category": "Ecorium",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "ecorium.openWithEcorium",
+          "when": "resourceExtname == .ecore"
+        },
+        {
+          "command": "ecorium.openAsText",
+          "when": "activeCustomEditorId == ecorium.ecoreEditor"
+        },
+        {
+          "command": "ecorium.reload",
+          "when": "activeCustomEditorId == ecorium.ecoreEditor"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "ecorium.openAsText",
+          "when": "activeCustomEditorId == ecorium.ecoreEditor",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ecorium.reload",
+          "when": "activeCustomEditorId == ecorium.ecoreEditor",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ecorium.openWithEcorium",
+          "when": "resourceExtname == .ecore && activeCustomEditorId != ecorium.ecoreEditor",
+          "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "ecorium.openWithEcorium",
+          "when": "resourceExtname == .ecore",
+          "group": "navigation@10"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Ecorium",
+      "properties": {
+        "ecorium.autoNameNewElements": {
+          "type": "boolean",
+          "default": true,
+          "description": "Give newly created named elements a default name (for example NewClass1) instead of leaving the name empty."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.mjs --production",
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.webview.json",
+    "test": "vitest run",
+    "icon": "node scripts/make-icon.mjs",
+    "harness": "node scripts/harness.mjs",
+    "package": "vsce package --no-dependencies",
+    "lint": "npm run typecheck"
+  },
+  "dependencies": {
+    "@masagroup/ecore": "^1.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.100.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
