@@ -1,0 +1,100 @@
+name: Release
+
+# Pushing a tag vX.Y.Z (or vX.Y.Z-suffix for a pre-release) builds and tests the tagged commit, then creates
+# the GitHub release "Ecorium X.Y.Z" with ecorium-X.Y.Z.vsix attached. The tag must match package.json.
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Compare tag and package.json version
+        id: check
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not of the form vX.Y.Z or vX.Y.Z-suffix"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$PACKAGE_VERSION" != "$VERSION" ]; then
+            echo "::error::Tag $TAG does not match package.json version $PACKAGE_VERSION. Bump package.json first, then tag."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+
+  build:
+    name: Build
+    needs: check
+    uses: ./.github/workflows/build_and_test.yaml
+    permissions:
+      contents: read
+      packages: read
+
+  release:
+    name: Publish GitHub release
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.check.outputs.version }}
+      PRERELEASE: ${{ needs.check.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: ecorium-vsix
+          path: vsix
+      - name: Create or update release
+        run: |
+          VSIX="vsix/ecorium-$VERSION.vsix"
+          if [ ! -f "$VSIX" ]; then
+            echo "::error::$VSIX not found in the build artifact"
+            ls -R vsix
+            exit 1
+          fi
+
+          # Release notes: the "## X.Y.Z" section of CHANGELOG.md (also "## vX.Y.Z" or "## X.Y.Z - date")
+          awk -v ver="$VERSION" '
+            /^## / { if (found) exit
+                     h = $0; sub(/^## +v?/, "", h)
+                     found = (h == ver || index(h, ver " ") == 1); next }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          NOTES=(--notes-file notes.md)
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::warning::No '## $VERSION' section in CHANGELOG.md, using generated notes"
+            NOTES=(--generate-notes)
+          fi
+          FLAGS=()
+          if [ "$PRERELEASE" = "true" ]; then FLAGS+=(--prerelease); fi
+
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists, replacing the VSIX asset"
+            gh release upload "$TAG" "$VSIX" --clobber
+          else
+            gh release create "$TAG" "$VSIX" --verify-tag --title "Ecorium $VERSION" "${NOTES[@]}" "${FLAGS[@]}"
+          fi
