@@ -1,3 +1,6 @@
+[![License](https://img.shields.io/github/license/masagroup/soft.vscode.svg)](https://github.com/masagroup/soft.vscode/blob/master/LICENSE)
+![Build and Test](https://github.com/masagroup/soft.vscode/actions/workflows/build_and_test.yaml/badge.svg)
+
 # Ecorium – Ecore Model Editor for VS Code
 
 Ecorium is a tree and properties editor for [EMF](https://eclipse.dev/emf/) Ecore metamodels (`.ecore` files),
@@ -49,6 +52,10 @@ becomes read-only and shows a banner: fix the file in the text editor, the model
   changing a referenced file.
 
 ## Development
+
+`@masagroup/ecore` is published on [GitHub Packages](https://github.com/orgs/masagroup/packages), which
+requires a token even for public packages: put `//npm.pkg.github.com/:_authToken=<token with read:packages>`
+in your user `.npmrc` (the scope mapping itself is in the project `.npmrc`).
 
 ```bash
 npm install
