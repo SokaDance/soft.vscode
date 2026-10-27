@@ -878,6 +878,10 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
             renderBanner()
             renderTree()
             persist()
+            if (selectedId && message.selectId !== undefined) {
+                // selection chosen by the host (go to declaration, new element): make sure it is visible
+                tree.querySelector(`.row[data-id="${CSS.escape(selectedId)}"]`)?.scrollIntoView({ block: "nearest" })
+            }
             if (selectedId && message.selectId === undefined) post({ type: "select", id: selectedId })
             if (!selectedId) {
                 properties = null
