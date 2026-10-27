@@ -266,11 +266,11 @@ textarea:disabled {
 .icon.generic { background: var(--icon-generic); }
 
 /* ---- empty state ----------------------------------------------------------------------------- */
-.empty {
+.empty-model {
     padding: 24px 16px;
     color: var(--vscode-descriptionForeground);
 }
-.empty p {
+.empty-model p {
     margin: 0 0 12px;
 }
 

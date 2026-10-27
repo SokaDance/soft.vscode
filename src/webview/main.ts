@@ -291,7 +291,7 @@ function renderTree(): void {
 }
 
 function renderEmptyTree(): void {
-    const box = el("div", { class: "empty" }, el("p", { text: "This model is empty." }))
+    const box = el("div", { class: "empty-model" }, el("p", { text: "This model is empty." }))
     if (!readOnly && snapshot) {
         const select = el("select", { "aria-label": "Root element type" })
         for (const o of snapshot.rootOptions) select.append(el("option", { value: `${o.nsURI}|${o.eClass}`, text: o.eClass }))
