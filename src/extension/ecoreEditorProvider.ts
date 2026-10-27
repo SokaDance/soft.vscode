@@ -99,6 +99,7 @@ class EditorSession {
                     this.post(panel, { type: "error", message: this.model.readOnlyReason ?? "The model is read-only because the file has errors. Fix it in the text editor first." })
                     return
                 }
+                console.log("[ecorium] edit", JSON.stringify(message.command))
                 let selectId: string | null | undefined
                 try {
                     selectId = this.model.apply(message.command).selectId

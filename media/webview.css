@@ -380,6 +380,10 @@ body.ctrl .with-jump select:hover {
 body.ctrl #tree:focus .row.linkable.selected:hover .label {
     color: inherit;
 }
+/* a modified click must reach the chip, never its remove/move buttons */
+body.ctrl .chip button {
+    pointer-events: none;
+}
 
 /* ---- context menu ---------------------------------------------------------------------------- */
 #menu {
