@@ -2,7 +2,7 @@ import { URI } from "@masagroup/ecore"
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import type { PropertyDescriptor, Ref, TreeNode } from "../src/shared/protocol"
-import { EcoreModel } from "../src/extension/model/ecoreModel"
+import { EcoreModel, registeredPackage, serializePackage } from "../src/extension/model/ecoreModel"
 import { featureLabel } from "../src/extension/model/labels"
 
 const LIBRARY = readFileSync(new URL("../samples/library.ecore", import.meta.url), "utf8")
@@ -67,9 +67,11 @@ describe("EcoreModel", () => {
         const shop = pkg.children[0]
         expect(shop.children.map((c) => c.label)).toEqual(["name : EString", "items : Item"])
         expect(shop.children[1].detail).toBe("[0..*] containment")
-        // typeId points to the local declaration of the type; external types (EString) have none
+        // typeId points to the local declaration of the type, or to the uri of an external one
         expect(shop.children[1].typeId).toBe(pkg.children[1].id)
-        expect(shop.children[0].typeId).toBeUndefined()
+        expect(shop.children[0].typeId).toBe("uri:http://www.eclipse.org/emf/2002/Ecore#//EString")
+        expect(model.idForFragment("//Item")).toBe(pkg.children[1].id)
+        expect(model.idForFragment("//Nope")).toBeUndefined()
         expect(find(snapshot.roots, "BLUE = 1").icon).toBe("literal")
         // the transient eFactoryInstance must not show up
         expect(pkg.children.some((c) => c.eClass === "EFactory")).toBe(false)
@@ -233,6 +235,21 @@ describe("EcoreModel", () => {
         expect(model.getDiagnostics().length).toBeGreaterThan(0)
         expect(model.getDiagnostics()[0].message).toMatch(/EThing/)
         expect(model.isReadOnly()).toBe(true)
+    })
+
+    it("shows the Ecore package itself as a read-only model", () => {
+        const pkg = registeredPackage("http://www.eclipse.org/emf/2002/Ecore")!
+        expect(pkg.getName()).toBe("ecore")
+        expect(registeredPackage("http://nowhere")).toBeNull()
+        const text = serializePackage(pkg)
+        expect(text).toContain('name="EString"')
+        const model = new EcoreModel(new URI("ecorium-package:/ecore.ecore"), { readOnlyReason: "built in" })
+        expect(model.load(text)).toBe(true)
+        expect(model.getDiagnostics()).toEqual([])
+        expect(model.isReadOnly()).toBe(true)
+        expect(model.snapshot().readOnlyReason).toBe("built in")
+        const eString = model.snapshot().roots[0].children.find((c) => /^EString\b/.test(c.label))!
+        expect(model.idForFragment("//EString")).toBe(eString.id)
     })
 
     it("round-trips the complex library sample", () => {

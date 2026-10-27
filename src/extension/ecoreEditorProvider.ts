@@ -10,9 +10,11 @@
 import { URI } from "@masagroup/ecore"
 import * as vscode from "vscode"
 import type { HostMessage, ModelDiagnostic, WebviewMessage } from "../shared/protocol"
-import { EcoreModel } from "./model/ecoreModel"
+import { EcoreModel, registeredPackage, serializePackage } from "./model/ecoreModel"
 
 export const VIEW_TYPE = "ecorium.ecoreEditor"
+/** Scheme of the read-only documents showing a registered package (query: its nsURI). */
+export const PACKAGE_SCHEME = "ecorium-package"
 
 /** One open document: its Soft TS model plus the webviews showing it. */
 class EditorSession {
@@ -21,13 +23,28 @@ class EditorSession {
     /** Text we last wrote ourselves, to distinguish our own edits from external ones. */
     private lastWritten: string | undefined
     private reloadTimer: NodeJS.Timeout | undefined
+    /** Fragment to select once the first webview is ready (Ctrl+Click from another document). */
+    private pendingFragment: string | undefined
+    private ready = false
 
     constructor(
         readonly document: vscode.TextDocument,
-        private readonly diagnostics: vscode.DiagnosticCollection
+        private readonly diagnostics: vscode.DiagnosticCollection,
+        private readonly openExternal: (uri: string) => Promise<void>
     ) {
-        this.model = new EcoreModel(documentUri(document), { autoName: autoNameSetting() })
+        const readOnlyReason = document.uri.scheme === PACKAGE_SCHEME ? "This package is built into Ecorium and cannot be edited." : undefined
+        this.model = new EcoreModel(documentUri(document), { autoName: autoNameSetting(), readOnlyReason })
         this.parse(document.getText())
+    }
+
+    /** Selects the object at `fragment` in every webview, now or as soon as one is ready. */
+    selectFragment(fragment: string): void {
+        if (!this.ready) {
+            this.pendingFragment = fragment
+            return
+        }
+        const id = this.model.idForFragment(fragment)
+        if (id) this.broadcastModel(id)
     }
 
     /** Called for every text change of the document; ignores the ones we produced. */
@@ -60,8 +77,16 @@ class EditorSession {
 
     async handle(panel: vscode.WebviewPanel, message: WebviewMessage): Promise<void> {
         switch (message.type) {
-            case "ready":
-                this.post(panel, { type: "model", snapshot: this.model.snapshot() })
+            case "ready": {
+                this.ready = true
+                const selectId = this.pendingFragment ? this.model.idForFragment(this.pendingFragment) : undefined
+                this.pendingFragment = undefined
+                this.post(panel, { type: "model", snapshot: this.model.snapshot(), selectId })
+                if (selectId) this.post(panel, { type: "properties", object: this.model.properties(selectId) })
+                return
+            }
+            case "openExternal":
+                await this.openExternal(message.uri)
                 return
             case "select":
                 this.post(panel, { type: "properties", object: message.id ? this.model.properties(message.id) : null })
@@ -71,7 +96,7 @@ class EditorSession {
                 return
             case "edit": {
                 if (this.model.isReadOnly()) {
-                    this.post(panel, { type: "error", message: "The model is read-only because the file has errors. Fix it in the text editor first." })
+                    this.post(panel, { type: "error", message: this.model.readOnlyReason ?? "The model is read-only because the file has errors. Fix it in the text editor first." })
                     return
                 }
                 let selectId: string | null | undefined
@@ -128,6 +153,12 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
         this.diagnostics = vscode.languages.createDiagnosticCollection("ecorium")
         context.subscriptions.push(this.diagnostics)
         context.subscriptions.push(
+            vscode.workspace.registerTextDocumentContentProvider(PACKAGE_SCHEME, {
+                provideTextDocumentContent: (uri) => {
+                    const pkg = registeredPackage(uri.query)
+                    return pkg ? serializePackage(pkg) : ""
+                }
+            }),
             vscode.workspace.onDidChangeTextDocument((e) => this.sessions.get(e.document.uri.toString())?.onTextChanged()),
             vscode.workspace.onDidChangeConfiguration((e) => {
                 if (!e.affectsConfiguration("ecorium.autoNameNewElements")) return
@@ -147,6 +178,29 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
         return provider
     }
 
+    /**
+     * Opens the declaration at `uri` ("<resource>#<fragment>") in Ecorium and selects it: another .ecore
+     * file, or a package registered in Soft TS (Ecore itself) shown as a read-only document.
+     */
+    async openExternal(uri: string): Promise<void> {
+        const hash = uri.indexOf("#")
+        const resource = hash >= 0 ? uri.slice(0, hash) : uri
+        const fragment = hash >= 0 ? uri.slice(hash + 1) : ""
+        let target: vscode.Uri
+        if (resource.startsWith("file:")) {
+            target = vscode.Uri.parse(resource)
+        } else {
+            const pkg = registeredPackage(resource)
+            if (!pkg) {
+                void vscode.window.showWarningMessage(`Ecorium cannot open '${resource}'.`)
+                return
+            }
+            target = vscode.Uri.from({ scheme: PACKAGE_SCHEME, path: `/${pkg.getName()}.ecore`, query: resource })
+        }
+        await vscode.commands.executeCommand("vscode.openWith", target, VIEW_TYPE)
+        if (fragment) this.sessions.get(target.toString())?.selectFragment(fragment)
+    }
+
     /** Reloads the model shown for `uri` (or the active editor's document). */
     reload(uri?: vscode.Uri): void {
         const key = uri?.toString()
@@ -157,7 +211,7 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
         const key = document.uri.toString()
         let session = this.sessions.get(key)
         if (!session) {
-            session = new EditorSession(document, this.diagnostics)
+            session = new EditorSession(document, this.diagnostics, (uri) => this.openExternal(uri))
             this.sessions.set(key, session)
         }
         session.panels.add(panel)

@@ -26,7 +26,7 @@ export interface TreeNode {
     abstract?: boolean
     /** Name of the containment feature holding this node (undefined for roots). */
     feature?: string
-    /** Id of the declaration this node points to (eType of a typed element, first super type of a class), when it lives in this document. */
+    /** Declaration this node points to (eType of a typed element, first super type of a class): a local id, or "uri:<absolute uri>". */
     typeId?: string
     children: TreeNode[]
 }
@@ -54,6 +54,8 @@ export interface ModelSnapshot {
     diagnostics: ModelDiagnostic[]
     /** Set when the text could not be parsed at all: editing is disabled. */
     fatal?: ModelDiagnostic
+    /** Set when the document itself cannot be edited (e.g. a package built into Ecorium). */
+    readOnlyReason?: string
 }
 
 export type PropertyInput = "text" | "number" | "boolean" | "enum" | "reference"
@@ -102,3 +104,5 @@ export type WebviewMessage =
     | { type: "select"; id: string | null }
     | { type: "edit"; command: EditCommand }
     | { type: "openText" }
+    /** Open the declaration living outside the document: "<resource uri>#<fragment>". */
+    | { type: "openExternal"; uri: string }

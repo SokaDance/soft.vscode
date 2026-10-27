@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { registrations, Uri, EndOfLine, workspace } from "./vscode.stub"
+import { registrations, Uri, EndOfLine, workspace, commands, window } from "./vscode.stub"
 import { activate } from "../src/extension/extension"
-import { VIEW_TYPE } from "../src/extension/ecoreEditorProvider"
+import { PACKAGE_SCHEME, VIEW_TYPE } from "../src/extension/ecoreEditorProvider"
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
 <ecore:EPackage xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="p" nsURI="http://p" nsPrefix="p">
@@ -11,6 +11,7 @@ const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
 
 interface Provider {
     resolveCustomTextEditor(document: unknown, panel: unknown): Promise<void>
+    openExternal(uri: string): Promise<void>
 }
 
 function fakeDocument(text: string) {
@@ -81,5 +82,49 @@ describe("extension activation", () => {
         const last = posted[posted.length - 1] as { type: string; object: { label: string } }
         expect(last.type).toBe("properties")
         expect(last.object.label).toBe("B")
+    })
+
+    it("opens external declarations in Ecorium", async () => {
+        const provider = registrations.customEditors.get(VIEW_TYPE) as Provider
+        const { panel, send } = fakePanel()
+        await provider.resolveCustomTextEditor(fakeDocument(SAMPLE), panel)
+        const calls = (commands.executeCommand as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        calls.length = 0
+
+        // another .ecore file
+        send({ type: "openExternal", uri: "file:///C:/other.ecore#//Foo" })
+        await new Promise((r) => setTimeout(r, 0))
+        expect(calls[0][0]).toBe("vscode.openWith")
+        expect((calls[0][1] as Uri).toString()).toBe("file:///C:/other.ecore")
+        expect(calls[0][2]).toBe(VIEW_TYPE)
+
+        // the Ecore package itself, served as a read-only document
+        send({ type: "openExternal", uri: "http://www.eclipse.org/emf/2002/Ecore#//EString" })
+        await new Promise((r) => setTimeout(r, 0))
+        const target = calls[1][1] as Uri
+        expect(target.scheme).toBe(PACKAGE_SCHEME)
+        expect(target.path).toBe("/ecore.ecore")
+        const content = registrations.contentProviders.get(PACKAGE_SCHEME)!.provideTextDocumentContent(target)
+        expect(content).toContain('name="EString"')
+
+        // the Ecore document selects the requested object once its webview is ready
+        const ecoreDocument = { ...fakeDocument(content), uri: target }
+        const ecoreView = fakePanel()
+        await provider.resolveCustomTextEditor(ecoreDocument as never, ecoreView.panel)
+        await provider.openExternal("http://www.eclipse.org/emf/2002/Ecore#//EString")
+        ecoreView.send({ type: "ready" })
+        await new Promise((r) => setTimeout(r, 0))
+        const model = ecoreView.posted.find((m) => (m as { type: string }).type === "model") as {
+            snapshot: { readOnlyReason?: string; roots: { children: { id: string; label: string }[] }[] }
+            selectId?: string
+        }
+        expect(model.snapshot.readOnlyReason).toBeTruthy()
+        expect(model.selectId).toBe(model.snapshot.roots[0].children.find((c) => /^EString\b/.test(c.label))!.id)
+
+        // unknown packages are reported, not opened
+        send({ type: "openExternal", uri: "http://nowhere#//X" })
+        await new Promise((r) => setTimeout(r, 0))
+        expect(window.showWarningMessage).toHaveBeenCalled()
+        expect(calls.length).toBe(3) // the two openExternal messages and the direct call above
     })
 })

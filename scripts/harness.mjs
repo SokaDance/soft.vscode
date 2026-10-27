@@ -47,6 +47,9 @@ function handle(message) {
             return [{ type: "model", snapshot: model.snapshot() }]
         case "select":
             return [{ type: "properties", object: message.id ? model.properties(message.id) : null }]
+        case "openExternal":
+            console.log("openExternal (not available in the harness):", message.uri)
+            return
         case "openText":
             return [{ type: "error", message: "(harness) Open as Text is not available here" }]
         case "edit": {

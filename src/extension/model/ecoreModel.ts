@@ -12,6 +12,7 @@ import {
     EcoreUtils,
     URI,
     getEcorePackage,
+    getPackageRegistry,
     isEAttribute,
     isEClass,
     isEDataType,
@@ -47,6 +48,30 @@ function isETypedElement(obj: EObject): obj is ETypedElement {
     return typeof (obj as Partial<ETypedElement>).getEType === "function"
 }
 
+/** The package registered for `nsURI` (Ecore itself, or a package of the global registry), if any. */
+export function registeredPackage(nsURI: string): EPackage | null {
+    return nsURI === ECORE_NS_URI ? getEcorePackage() : getPackageRegistry().getPackage(nsURI)
+}
+
+/** XMI text of a registered package, so it can be shown like a .ecore file. */
+export function serializePackage(pkg: EPackage): string {
+    const resourceSet = new EResourceSetImpl()
+    const resource = resourceSet.createResource(new URI(`ecorium-package:/${pkg.getName()}.ecore`))
+    const copy = EcoreUtils.copy(pkg)
+    // a built-in operation without type keeps eType explicitly set to null, which would be written as
+    // <eType xsi:nil="true"/> and confuse the decoder; an unset eType is simply omitted
+    const unsetNullTypes = (obj: EObject) => {
+        if (isETypedElement(obj) && !obj.getEType()) {
+            const eType = obj.eClass().getEStructuralFeatureFromName("eType")
+            if (eType && obj.eIsSet(eType)) obj.eUnset(eType)
+        }
+        for (const child of obj.eContents()) unsetNullTypes(child)
+    }
+    unsetNullTypes(copy)
+    resource.eContents().add(copy)
+    return resource.saveToString()
+}
+
 export interface ApplyResult {
     /** Object to select after the edit (null to clear the selection). */
     selectId?: string | null
@@ -54,6 +79,8 @@ export interface ApplyResult {
 
 export interface EcoreModelOptions {
     autoName?: boolean
+    /** Refuse every edit, with this explanation (e.g. a package built into Ecorium). */
+    readOnlyReason?: string
 }
 
 const ECORE_NS_URI = "http://www.eclipse.org/emf/2002/Ecore"
@@ -75,12 +102,14 @@ export class EcoreModel {
     private fatal: ModelDiagnostic | undefined
     private hasGoodModel = false
     autoName: boolean
+    readonly readOnlyReason: string | undefined
 
     constructor(
         private readonly uri: URI,
         options: EcoreModelOptions = {}
     ) {
         this.autoName = options.autoName ?? true
+        this.readOnlyReason = options.readOnlyReason
         this.resourceSet = new EResourceSetImpl()
         this.resource = this.resourceSet.createResource(uri)
     }
@@ -150,7 +179,17 @@ export class EcoreModel {
 
     /** Editing is refused while the text is broken or contains constructs Soft TS cannot round-trip. */
     isReadOnly(): boolean {
-        return !!this.fatal || this.diagnostics.some((d) => d.severity === "error")
+        return !!this.readOnlyReason || !!this.fatal || this.diagnostics.some((d) => d.severity === "error")
+    }
+
+    /** Id of the object at `fragment` (e.g. "//Library/name"), if any. */
+    idForFragment(fragment: string): string | undefined {
+        try {
+            const obj = this.resource.getEObject(fragment)
+            return obj ? this.idOf.get(obj) : undefined
+        } catch {
+            return undefined
+        }
     }
 
     isEmpty(): boolean {
@@ -171,7 +210,8 @@ export class EcoreModel {
             childOptions: this.childOptions(),
             rootOptions: this.rootOptions(),
             diagnostics: this.diagnostics,
-            fatal: this.fatal
+            fatal: this.fatal,
+            readOnlyReason: this.readOnlyReason
         }
     }
 
@@ -194,12 +234,16 @@ export class EcoreModel {
         return node
     }
 
-    /** Id of the local declaration a node points to: the eType of a typed element, or the first super type of a class. */
+    /**
+     * Declaration a node points to: the eType of a typed element, or the first super type of a class.
+     * A local id, or "uri:<absolute uri>" when it lives in another resource.
+     */
     private declarationIdOf(obj: EObject): string | undefined {
         let target: EObject | null | undefined
         if (isEClass(obj)) target = obj.getESuperTypes().isEmpty() ? null : obj.getESuperTypes().get(0)
         else if (isETypedElement(obj)) target = obj.getEType()
-        return target ? this.idOf.get(target) : undefined
+        if (!target) return undefined
+        return this.idOf.get(target) ?? "uri:" + EcoreUtils.getURI(target).toString()
     }
 
     private childOptions(): Record<string, ChildOption[]> {

@@ -23,7 +23,7 @@ The model is loaded, edited and serialized with [Soft TS](https://github.com/mas
   `Move Down` and `Delete`. Deleting an element also removes the references pointing to it.
 - **Keyboard**: arrows to navigate, `Delete` to delete, `F2` to rename, `Ctrl+Up/Down` to reorder,
   `Enter` to jump to the properties. `Ctrl+Click` an element, a reference chip or the `→` button next to a
-  type to go to its declaration.
+  type to go to its declaration; a type from another file or from Ecore itself opens in its own editor.
 - **Filter** box to find elements by name.
 - **Plain text underneath**: the editor writes standard XMI back into the text document, so **undo/redo,
   save, hot exit and source control** are the regular VS Code ones. `Open as Text` switches to the XML

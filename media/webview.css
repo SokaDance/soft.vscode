@@ -351,7 +351,7 @@ textarea:disabled {
 .chip button.move {
     font-size: 0.8em;
 }
-.chip.local {
+.chip {
     cursor: pointer;
 }
 .with-jump {
