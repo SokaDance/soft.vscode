@@ -369,6 +369,18 @@ textarea:disabled {
     line-height: 1.6;
 }
 
+/* ---- Ctrl held: anything leading to a declaration looks like a link ------------------------- */
+body.ctrl .row.linkable:hover .label,
+body.ctrl .chip:hover > span:first-child,
+body.ctrl .with-jump select:hover {
+    color: var(--vscode-textLink-foreground, #3794ff);
+    text-decoration: underline;
+    cursor: pointer;
+}
+body.ctrl #tree:focus .row.linkable.selected:hover .label {
+    color: inherit;
+}
+
 /* ---- context menu ---------------------------------------------------------------------------- */
 #menu {
     position: fixed;

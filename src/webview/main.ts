@@ -276,7 +276,8 @@ function renderTree(): void {
                     "row" +
                     (node.id === selectedId ? " selected" : "") +
                     (hasChildren && (filter || expanded.has(node.id)) ? " expanded" : "") +
-                    (node.abstract ? " abstract" : ""),
+                    (node.abstract ? " abstract" : "") +
+                    (node.typeId ? " linkable" : ""),
                 role: "treeitem",
                 "data-id": node.id,
                 title: node.detail ? `${node.eClass} ${node.detail}` : node.eClass
@@ -467,6 +468,15 @@ window.addEventListener("keydown", (e) => {
 })
 window.addEventListener("blur", closeMenu)
 tree.addEventListener("scroll", closeMenu)
+
+// While Ctrl (or Cmd) is held, elements that lead to a declaration are shown as links (see body.ctrl in the CSS).
+function trackModifier(e: KeyboardEvent | MouseEvent): void {
+    document.body.classList.toggle("ctrl", e.ctrlKey || e.metaKey)
+}
+window.addEventListener("keydown", trackModifier)
+window.addEventListener("keyup", trackModifier)
+window.addEventListener("mousemove", trackModifier)
+window.addEventListener("blur", () => document.body.classList.remove("ctrl"))
 
 interface MenuEntry {
     label: string
