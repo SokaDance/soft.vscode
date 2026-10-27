@@ -436,9 +436,19 @@ function goTo(id: string): void {
     reveal(id)
     renderTree()
     select(id)
-    const row = tree.querySelector(`.row[data-id="${CSS.escape(id)}"]`)
-    row?.scrollIntoView({ block: "nearest" })
+    showRow(id)
     tree.focus()
+}
+
+/** Scrolls the row of `id` into view and flashes it, so a jump from elsewhere is easy to follow. */
+function showRow(id: string): void {
+    const row = tree.querySelector<HTMLElement>(`.row[data-id="${CSS.escape(id)}"]`)
+    if (!row) return
+    row.scrollIntoView({ block: "nearest" })
+    row.classList.remove("flash")
+    void row.offsetWidth // restart the animation when the same row is flashed twice
+    row.classList.add("flash")
+    row.addEventListener("animationend", () => row.classList.remove("flash"), { once: true })
 }
 
 function select(id: string | null): void {
@@ -772,6 +782,23 @@ function isModified(e: MouseEvent): boolean {
     return e.ctrlKey || e.metaKey
 }
 
+// Ctrl+click on a reference chip navigates to the declaration. The listener captures on the panel, so it runs
+// before the remove/move buttons of the chip and swallows the event whatever part of the chip was hit.
+for (const type of ["mousedown", "click"] as const) {
+    props.addEventListener(
+        type,
+        (e) => {
+            const target = e.target as Element
+            const chip = target.closest<HTMLElement>(".chip[data-ref]")
+            if (!chip || !isModified(e) || e.button !== 0) return
+            e.preventDefault()
+            e.stopPropagation()
+            if (type === "click") goTo(chip.dataset.ref!)
+        },
+        true
+    )
+}
+
 function jumpTitle(ref: Ref): string {
     const detail = readableFragment(ref.detail)
     return detail ? `${detail}\nCtrl+Click to go to the declaration` : "Ctrl+Click to go to the declaration"
@@ -783,14 +810,8 @@ function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolea
     const chips = el("div", { class: "chips" })
     const commit = (next: Ref[]) => edit({ type: "setRefs", id, feature: d.feature, targets: next.map((r) => r.id) })
     values.forEach((ref, i) => {
-        const chip = el("span", { class: "chip", title: jumpTitle(ref) }, el("span", { text: ref.label }))
-        // Ctrl+click anywhere on the chip (its buttons included) navigates and never edits
-        chip.addEventListener("click", (e) => {
-            if (isModified(e)) {
-                e.preventDefault()
-                goTo(ref.id)
-            }
-        })
+        // a modified click anywhere on the chip navigates: handled by the capturing listener on the panel
+        const chip = el("span", { class: "chip", title: jumpTitle(ref), "data-ref": ref.id }, el("span", { text: ref.label }))
         if (!disabled) {
             if (i > 0) {
                 const up = el("button", { class: "move", title: "Move up", text: "▲" })
@@ -903,7 +924,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
             persist()
             if (selectedId && message.selectId !== undefined) {
                 // selection chosen by the host (go to declaration, new element): make sure it is visible
-                tree.querySelector(`.row[data-id="${CSS.escape(selectedId)}"]`)?.scrollIntoView({ block: "nearest" })
+                showRow(selectedId)
             }
             if (selectedId && message.selectId === undefined) post({ type: "select", id: selectedId })
             if (!selectedId) {
