@@ -600,7 +600,7 @@ function renderProperties(): void {
     const p = properties
     props.append(
         el("h3", {}, icon(p.icon), el("span", { text: p.label || `<${p.eClass}>` })),
-        el("div", { class: "fragment", text: `${p.eClass} • ${p.fragment}` })
+        el("div", { class: "fragment", text: `${p.eClass} • ${readableFragment(p.fragment)}` })
     )
     const table = el("div", { class: "prop-table" })
     const attributes = p.props.filter((d) => d.kind === "attribute")
@@ -706,7 +706,7 @@ function candidateOptions(d: PropertyDescriptor, exclude: Set<string>): HTMLElem
     const build = (label: string, refs: Ref[]) => {
         if (!refs.length) return
         const group = el("optgroup", { label })
-        for (const c of refs) group.append(el("option", { value: c.id, text: c.label, title: c.detail }))
+        for (const c of refs) group.append(el("option", { value: c.id, text: c.label, title: readableFragment(c.detail) }))
         groups.push(group)
     }
     build("This model", local)
@@ -719,7 +719,7 @@ function renderSingleReference(id: string, d: PropertyDescriptor, disabled: bool
     select.append(el("option", { value: "", text: "(none)" }))
     const current = d.value as Ref | null
     const known = new Set((d.candidates ?? []).map((c) => c.id))
-    if (current && !known.has(current.id)) select.append(el("option", { value: current.id, text: current.label, title: current.detail }))
+    if (current && !known.has(current.id)) select.append(el("option", { value: current.id, text: current.label, title: readableFragment(current.detail) }))
     select.append(...candidateOptions(d, new Set()))
     select.value = current ? current.id : ""
     select.addEventListener("change", () => edit({ type: "setRef", id, feature: d.feature, target: select.value || null }))
@@ -732,7 +732,7 @@ function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolea
     const chips = el("div", { class: "chips" })
     const commit = (next: Ref[]) => edit({ type: "setRefs", id, feature: d.feature, targets: next.map((r) => r.id) })
     values.forEach((ref, i) => {
-        const chip = el("span", { class: "chip", title: ref.detail }, el("span", { text: ref.label }))
+        const chip = el("span", { class: "chip", title: readableFragment(ref.detail) }, el("span", { text: ref.label }))
         if (!disabled) {
             if (i > 0) {
                 const up = el("button", { class: "move", title: "Move up", text: "▲" })
@@ -782,7 +782,7 @@ function patchProperties(next: ObjectProperties): boolean {
     const header = props.querySelector("h3 span")
     if (header) header.textContent = next.label || `<${next.eClass}>`
     const fragment = props.querySelector(".fragment")
-    if (fragment) fragment.textContent = `${next.eClass} • ${next.fragment}`
+    if (fragment) fragment.textContent = `${next.eClass} • ${readableFragment(next.fragment)}`
     properties = next
     return true
 }
@@ -861,3 +861,17 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
 
 renderProperties()
 post({ type: "ready" })
+
+/**
+ * The URI fragment of an object percent-encodes the source of annotations and other keys, wrapped in
+ * `%...%` (e.g. `//Root/%http:%2F%2Fexample.org%`); show the escapes decoded, keeping the delimiters.
+ */
+function readableFragment(fragment: string | undefined): string | undefined {
+    return fragment?.replace(/%[0-9A-Fa-f]{2}/g, (escape) => {
+        try {
+            return decodeURIComponent(escape)
+        } catch {
+            return escape
+        }
+    })
+}
