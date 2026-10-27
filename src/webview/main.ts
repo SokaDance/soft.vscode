@@ -767,6 +767,11 @@ function renderSingleReference(id: string, d: PropertyDescriptor, disabled: bool
     return el("div", { class: "with-jump" }, select, jump)
 }
 
+/** True when the Ctrl (or Cmd) modifier of a go-to-declaration click is held. */
+function isModified(e: MouseEvent): boolean {
+    return e.ctrlKey || e.metaKey
+}
+
 function jumpTitle(ref: Ref): string {
     const detail = readableFragment(ref.detail)
     return detail ? `${detail}\nCtrl+Click to go to the declaration` : "Ctrl+Click to go to the declaration"
@@ -779,13 +784,18 @@ function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolea
     const commit = (next: Ref[]) => edit({ type: "setRefs", id, feature: d.feature, targets: next.map((r) => r.id) })
     values.forEach((ref, i) => {
         const chip = el("span", { class: "chip", title: jumpTitle(ref) }, el("span", { text: ref.label }))
+        // Ctrl+click anywhere on the chip (its buttons included) navigates and never edits
         chip.addEventListener("click", (e) => {
-            if ((e.ctrlKey || e.metaKey) && !(e.target as Element).closest("button")) goTo(ref.id)
+            if (isModified(e)) {
+                e.preventDefault()
+                goTo(ref.id)
+            }
         })
         if (!disabled) {
             if (i > 0) {
                 const up = el("button", { class: "move", title: "Move up", text: "▲" })
-                up.addEventListener("click", () => {
+                up.addEventListener("click", (e) => {
+                    if (isModified(e)) return
                     const next = [...values]
                     ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
                     commit(next)
@@ -793,7 +803,10 @@ function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolea
                 chip.append(up)
             }
             const remove = el("button", { title: "Remove", text: "×" })
-            remove.addEventListener("click", () => commit(values.filter((_, j) => j !== i)))
+            remove.addEventListener("click", (e) => {
+                if (isModified(e)) return
+                commit(values.filter((_, j) => j !== i))
+            })
             chip.append(remove)
         }
         chips.append(chip)
