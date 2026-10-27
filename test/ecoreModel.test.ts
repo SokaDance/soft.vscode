@@ -1,8 +1,9 @@
 import { URI } from "@masagroup/ecore"
 import { readFileSync } from "node:fs"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { describe, expect, it } from "vitest"
 import type { PropertyDescriptor, Ref, TreeNode } from "../src/shared/protocol"
-import { EcoreModel, registeredPackage, serializePackage } from "../src/extension/model/ecoreModel"
+import { EcoreModel, readablePath, registeredPackage, serializePackage } from "../src/extension/model/ecoreModel"
 import { featureLabel } from "../src/extension/model/labels"
 
 const LIBRARY = readFileSync(new URL("../samples/library.ecore", import.meta.url), "utf8")
@@ -266,6 +267,53 @@ describe("EcoreModel", () => {
         const reloaded = new EcoreModel(new URI("file:///C:/tmp/library.ecore"))
         expect(reloaded.load(model.serialize())).toBe(true)
         expect(reloaded.getDiagnostics()).toEqual([])
+    })
+})
+
+describe("external packages", () => {
+    const fixturePath = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
+    const fixtureUri = (name: string) => pathToFileURL(fixturePath(name)).href
+
+    it("lists the referenced packages and lets unreferenced ones be added and removed", () => {
+        const text = readFileSync(fixturePath("use.ecore"), "utf8")
+        const model = new EcoreModel(new URI(fixtureUri("use.ecore")))
+        expect(model.load(text)).toBe(true)
+
+        // the super type lives in types.ecore, the attribute type in Ecore itself
+        let list = model.externalPackages()
+        expect(list.map((p) => [p.label, p.referenced, !!p.builtin]).sort()).toEqual([
+            ["ecore", true, true],
+            ["types", true, false]
+        ])
+        const types = list.find((p) => p.label === "types")!
+        expect(types.path.endsWith("test/fixtures/types.ecore")).toBe(true)
+        expect(types.path.startsWith("file:")).toBe(false)
+        expect(() => model.removeExternalPackage(types.uri)).toThrow(/referenced/)
+
+        // a package added by hand is not referenced, and its classes become candidates
+        model.addExternalPackage(fixtureUri("extra.ecore"))
+        list = model.externalPackages()
+        const extra = list.find((p) => p.label === "extra")!
+        expect(extra.referenced).toBe(false)
+        const thing = model.snapshot().roots[0].children[0]
+        const superTypes = model.properties(thing.id)!.props.find((d) => d.feature === "eSuperTypes")!
+        expect(superTypes.candidates!.some((c) => c.label.startsWith("Extra"))).toBe(true)
+
+        // kept when the resource set is rebuilt, gone once removed
+        model.reset(text)
+        expect(model.externalPackages().some((p) => p.label === "extra")).toBe(true)
+        model.removeExternalPackage(extra.uri)
+        expect(model.externalPackages().some((p) => p.label === "extra")).toBe(false)
+
+        // a file that cannot be read is refused and leaves no trace
+        expect(() => model.addExternalPackage(fixtureUri("missing.ecore"))).toThrow(/Cannot load/)
+        expect(model.externalPackages().length).toBe(2)
+    })
+
+    it("shows file URIs as paths", () => {
+        expect(readablePath("file:///D:/models/a%20b.ecore")).toBe("D:/models/a b.ecore")
+        expect(readablePath("file:///home/me/x.ecore")).toBe("/home/me/x.ecore")
+        expect(readablePath("http://www.eclipse.org/emf/2002/Ecore")).toBe("http://www.eclipse.org/emf/2002/Ecore")
     })
 })
 

@@ -25,6 +25,9 @@ The model is loaded, edited and serialized with [Soft TS](https://github.com/mas
   `Enter` to jump to the properties. `Ctrl+Click` an element, a reference chip or the `→` button next to a
   type to go to its declaration; a type from another file or from Ecore itself opens in its own editor.
 - **Filter** box to find elements by name.
+- **External packages** panel under the tree: the `.ecore` files and built-in packages the document refers
+  to, with their full path. `+` loads another file so its elements become reference candidates; `×` forgets
+  a package again, and is greyed out while an element of the document still points into it.
 - **Plain text underneath**: the editor writes standard XMI back into the text document, so **undo/redo,
   save, hot exit and source control** are the regular VS Code ones. `Open as Text` switches to the XML
   source at any time, and parse problems are listed in the **Problems** view.

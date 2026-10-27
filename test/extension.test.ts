@@ -1,3 +1,4 @@
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { describe, expect, it } from "vitest"
 import { registrations, Uri, EndOfLine, workspace, commands, window } from "./vscode.stub"
 import { activate } from "../src/extension/extension"
@@ -82,6 +83,34 @@ describe("extension activation", () => {
         const last = posted[posted.length - 1] as { type: string; object: { label: string } }
         expect(last.type).toBe("properties")
         expect(last.object.label).toBe("B")
+    })
+
+    it("adds and removes external packages", async () => {
+        const provider = registrations.customEditors.get(VIEW_TYPE) as Provider
+        const { panel, send, posted } = fakePanel()
+        await provider.resolveCustomTextEditor(fakeDocument(SAMPLE), panel)
+        const tick = () => new Promise((r) => setTimeout(r, 0))
+        type Model = { type: string; snapshot: { externalPackages: { label: string; referenced: boolean }[] } }
+        const lastModel = () => posted.filter((m) => (m as Model).type === "model").pop() as Model
+
+        const extra = pathToFileURL(fileURLToPath(new URL("./fixtures/extra.ecore", import.meta.url))).href
+        send({ type: "addPackage", uri: extra })
+        await tick()
+        expect(lastModel().snapshot.externalPackages.map((p) => p.label)).toContain("extra")
+
+        send({ type: "removePackage", uri: extra })
+        await tick()
+        expect(lastModel().snapshot.externalPackages.map((p) => p.label)).not.toContain("extra")
+
+        // without a uri the host asks for the files (the stub picks none)
+        send({ type: "addPackage" })
+        await tick()
+        expect(window.showOpenDialog).toHaveBeenCalled()
+
+        // a file that cannot be read is reported to the webview
+        send({ type: "addPackage", uri: "file:///C:/nowhere/missing.ecore" })
+        await tick()
+        expect(posted.some((m) => (m as { type: string; message?: string }).type === "error" && /Cannot load/.test((m as { message: string }).message))).toBe(true)
     })
 
     it("opens external declarations in Ecorium", async () => {

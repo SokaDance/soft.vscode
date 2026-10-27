@@ -95,6 +95,7 @@ export const window = {
         return new Disposable()
     },
     showSaveDialog: vi.fn(),
+    showOpenDialog: vi.fn(),
     showWarningMessage: vi.fn(),
     tabGroups: { activeTabGroup: { activeTab: undefined } },
     activeTextEditor: undefined

@@ -8,6 +8,7 @@
 // *****************************************************************************
 
 import { URI } from "@masagroup/ecore"
+import * as path from "node:path"
 import * as vscode from "vscode"
 import type { HostMessage, ModelDiagnostic, WebviewMessage } from "../shared/protocol"
 import { EcoreModel, registeredPackage, serializePackage } from "./model/ecoreModel"
@@ -87,6 +88,26 @@ class EditorSession {
             }
             case "openExternal":
                 await this.openExternal(message.uri)
+                return
+            case "addPackage": {
+                const uris = message.uri ? [message.uri] : await pickPackages(this.document)
+                for (const uri of uris) {
+                    try {
+                        this.model.addExternalPackage(uri)
+                    } catch (e) {
+                        this.post(panel, { type: "error", message: e instanceof Error ? e.message : String(e) })
+                    }
+                }
+                if (uris.length) this.broadcastModel()
+                return
+            }
+            case "removePackage":
+                try {
+                    this.model.removeExternalPackage(message.uri)
+                    this.broadcastModel()
+                } catch (e) {
+                    this.post(panel, { type: "error", message: e instanceof Error ? e.message : String(e) })
+                }
                 return
             case "select":
                 this.post(panel, { type: "properties", object: message.id ? this.model.properties(message.id) : null })
@@ -258,10 +279,24 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
     }
 }
 
+/** Asks for .ecore files to add as external packages; returns their resource URIs. */
+async function pickPackages(document: vscode.TextDocument): Promise<string[]> {
+    const picked = await vscode.window.showOpenDialog({
+        canSelectMany: true,
+        openLabel: "Add package",
+        filters: { "Ecore models": ["ecore"] },
+        defaultUri: document.uri.scheme === "file" ? vscode.Uri.file(path.dirname(document.uri.fsPath)) : undefined
+    })
+    return (picked ?? []).map((u) => fileUri(u).toString())
+}
+
+/** The Soft TS URI of a file: "file:///D:/models/x.ecore" whatever the platform. */
+function fileUri(uri: vscode.Uri): URI {
+    return new URI({ scheme: "file", path: "/" + uri.fsPath.replace(/\\/g, "/").replace(/^\/+/, "") })
+}
+
 function documentUri(document: vscode.TextDocument): URI {
-    if (document.uri.scheme === "file") {
-        return new URI({ scheme: "file", path: "/" + document.uri.fsPath.replace(/\\/g, "/").replace(/^\/+/, "") })
-    }
+    if (document.uri.scheme === "file") return fileUri(document.uri)
     // untitled or virtual documents: keep the ".ecore" extension so the XMI codec is selected
     const name = document.uri.path.split("/").pop() || "model.ecore"
     return new URI({ scheme: document.uri.scheme || "untitled", path: "/" + (name.endsWith(".ecore") ? name : name + ".ecore") })

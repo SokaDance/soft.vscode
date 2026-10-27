@@ -34,6 +34,7 @@ import {
 import type {
     ChildOption,
     EditCommand,
+    ExternalPackage,
     ModelDiagnostic,
     ModelSnapshot,
     ObjectProperties,
@@ -101,6 +102,8 @@ export class EcoreModel {
     private diagnostics: ModelDiagnostic[] = []
     private fatal: ModelDiagnostic | undefined
     private hasGoodModel = false
+    /** Resources added by hand (kept when the resource set is rebuilt). */
+    private addedPackages = new Set<string>()
     autoName: boolean
     readonly readOnlyReason: string | undefined
 
@@ -162,7 +165,107 @@ export class EcoreModel {
         this.objectOf.clear()
         const ok = this.load(text)
         if (previous.size) this.rebuildIds(previous)
+        for (const uri of [...this.addedPackages]) {
+            try {
+                this.addExternalPackage(uri)
+            } catch {
+                this.addedPackages.delete(uri)
+            }
+        }
         return ok
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // External packages
+    // ---------------------------------------------------------------------------------------------
+
+    /** Packages outside the document: the loaded resources of the set, plus the built-in ones the document points to. */
+    externalPackages(): ExternalPackage[] {
+        const referenced = this.referencedResources()
+        const list: ExternalPackage[] = []
+        const seen = new Set<string>()
+        for (const r of this.resourceSet.getResources()) {
+            if (r === this.resource) continue
+            const uri = r.getURI().toString()
+            seen.add(uri)
+            const names = r
+                .eContents()
+                .toArray()
+                .filter(isENamedElement)
+                .map((o) => o.getName() ?? "")
+                .filter(Boolean)
+            const missing = !r.isLoaded() || (r.eContents().isEmpty() && !r.getErrors().isEmpty())
+            list.push({ uri, path: readablePath(uri), label: missing ? "(not found)" : names.join(", ") || "(empty)", referenced: referenced.has(uri), missing })
+        }
+        for (const uri of referenced) {
+            if (seen.has(uri)) continue
+            const pkg = registeredPackage(uri)
+            if (pkg) list.push({ uri, path: uri, label: pkg.getName() ?? uri, referenced: true, builtin: true })
+        }
+        return list.sort((a, b) => a.path.localeCompare(b.path))
+    }
+
+    /** Loads `uri` into the resource set so its elements become reference candidates. */
+    addExternalPackage(uri: string): void {
+        if (uri === this.uri.toString()) throw new Error("This is the edited document itself")
+        const existing = this.findResource(uri)
+        if (existing?.isLoaded() && !existing.eContents().isEmpty()) {
+            this.addedPackages.add(uri)
+            return
+        }
+        let resource: EResource | undefined
+        try {
+            resource = this.resourceSet.getResource(new URI(uri), true)
+        } catch (e) {
+            const created = this.findResource(uri)
+            if (created) this.resourceSet.getResources().remove(created)
+            throw new Error(`Cannot load '${readablePath(uri)}': ${e instanceof Error ? e.message : String(e)}`)
+        }
+        if (!resource || !resource.isLoaded() || resource.eContents().isEmpty()) {
+            if (resource) this.resourceSet.getResources().remove(resource)
+            const first = resource?.getErrors().toArray()[0]
+            throw new Error(`Cannot load '${readablePath(uri)}'${first ? ": " + first.message : ""}`)
+        }
+        this.addedPackages.add(uri)
+    }
+
+    /** Forgets the resource at `uri`; refused while an element of the document points into it. */
+    removeExternalPackage(uri: string): void {
+        if (this.referencedResources().has(uri)) throw new Error(`'${readablePath(uri)}' is referenced by this file and cannot be removed`)
+        const resource = this.findResource(uri)
+        if (resource) this.resourceSet.getResources().remove(resource)
+        this.addedPackages.delete(uri)
+    }
+
+    private findResource(uri: string): EResource | undefined {
+        return this.resourceSet
+            .getResources()
+            .toArray()
+            .find((r) => r.getURI().toString() === uri)
+    }
+
+    /** URIs of the resources (and built-in packages) that elements of the document point to. */
+    private referencedResources(): Set<string> {
+        const uris = new Set<string>()
+        try {
+            EcoreUtils.resolveAllInResource(this.resource)
+        } catch {
+            // a dangling reference stays a proxy; it still names its resource below
+        }
+        const visit = (obj: EObject) => {
+            for (const target of obj.eCrossReferences()) {
+                if (!target) continue
+                const uri = target.eIsProxy() ? EcoreUtils.getURI(target) : target.eResource()?.getURI()
+                if (!uri) continue
+                const text = uri.toString()
+                const ndx = text.indexOf("#")
+                const resourceUri = ndx >= 0 ? text.slice(0, ndx) : text
+                if (resourceUri !== this.uri.toString()) uris.add(resourceUri)
+            }
+            for (const [, child] of contents(obj)) visit(child)
+        }
+        for (const root of this.resource.eContents()) visit(root)
+        return uris
     }
 
     serialize(): string {
@@ -211,7 +314,8 @@ export class EcoreModel {
             rootOptions: this.rootOptions(),
             diagnostics: this.diagnostics,
             fatal: this.fatal,
-            readOnlyReason: this.readOnlyReason
+            readOnlyReason: this.readOnlyReason,
+            externalPackages: this.externalPackages()
         }
     }
 
@@ -684,6 +788,18 @@ function uniqueName(base: string, siblings: EList<EObject>): string {
     for (let i = 1; ; i++) {
         const candidate = base + i
         if (!names.has(candidate)) return candidate
+    }
+}
+
+/** A file URI as a path ("D:/models/types.ecore"); other URIs unchanged. */
+export function readablePath(uri: string): string {
+    if (!uri.startsWith("file:")) return uri
+    let path = uri.replace(/^file:\/\//, "")
+    if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1)
+    try {
+        return decodeURIComponent(path)
+    } catch {
+        return path
     }
 }
 

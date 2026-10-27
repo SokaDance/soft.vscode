@@ -38,6 +38,22 @@ export interface ChildOption {
     label: string
 }
 
+/** A package living outside the edited document whose elements can be referenced. */
+export interface ExternalPackage {
+    /** Resource URI (a file, or the nsURI of a package built into Ecorium). */
+    uri: string
+    /** Readable location: the file path, or the nsURI. */
+    path: string
+    /** Names of the packages held by the resource. */
+    label: string
+    /** True when an element of the document points into this package: it cannot be removed. */
+    referenced: boolean
+    /** Package built into Ecorium (Ecore itself). */
+    builtin?: boolean
+    /** The file could not be loaded. */
+    missing?: boolean
+}
+
 export interface ModelDiagnostic {
     message: string
     line: number
@@ -56,6 +72,8 @@ export interface ModelSnapshot {
     fatal?: ModelDiagnostic
     /** Set when the document itself cannot be edited (e.g. a package built into Ecorium). */
     readOnlyReason?: string
+    /** Packages outside the document: the ones it references, plus the ones added by hand. */
+    externalPackages: ExternalPackage[]
 }
 
 export type PropertyInput = "text" | "number" | "boolean" | "enum" | "reference"
@@ -106,3 +124,7 @@ export type WebviewMessage =
     | { type: "openText" }
     /** Open the declaration living outside the document: "<resource uri>#<fragment>". */
     | { type: "openExternal"; uri: string }
+    /** Load another .ecore file so its elements can be referenced; without `uri` the host asks for the file. */
+    | { type: "addPackage"; uri?: string }
+    /** Forget an external package that nothing references any more. */
+    | { type: "removePackage"; uri: string }

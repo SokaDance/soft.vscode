@@ -29,6 +29,7 @@ interface PersistedState {
     expanded: string[]
     selected: string | null
     treeWidth?: number
+    packagesCollapsed?: boolean
 }
 
 const vscode = acquireVsCodeApi()
@@ -104,7 +105,7 @@ function edit(command: EditCommand): void {
 }
 
 function persist(): void {
-    vscode.setState({ expanded: [...expanded], selected: selectedId, treeWidth: treeWidth })
+    vscode.setState({ expanded: [...expanded], selected: selectedId, treeWidth: treeWidth, packagesCollapsed })
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -124,9 +125,12 @@ const toolbar = el(
     el("button", { class: "tool", title: "Open the XMI source in the text editor", text: "Open as Text" })
 )
 const tree = el("div", { id: "tree", tabindex: "0", role: "tree" })
+const packagesPanel = el("div", { id: "packages" })
+const left = el("div", { id: "left" }, tree, packagesPanel)
 const splitter = el("div", { id: "splitter" })
 const props = el("div", { id: "props" })
-const main = el("div", { id: "main" }, tree, splitter, props)
+const main = el("div", { id: "main" }, left, splitter, props)
+let packagesCollapsed = false
 const toastEl = el("div", { id: "toast" })
 app.append(banner, toolbar, main, toastEl)
 
@@ -164,7 +168,7 @@ splitter.addEventListener("mousedown", (e) => {
     const onMove = (ev: MouseEvent) => {
         const rect = main.getBoundingClientRect()
         treeWidth = Math.max(160, Math.min(rect.width - 200, ev.clientX - rect.left))
-        tree.style.flexBasis = treeWidth + "px"
+        left.style.flexBasis = treeWidth + "px"
     }
     const onUp = () => {
         splitter.classList.remove("dragging")
@@ -292,6 +296,73 @@ function renderTree(): void {
     }
     tree.append(fragment)
     tree.scrollTop = scrollTop
+}
+
+// -------------------------------------------------------------------------------------------------
+// External packages (collapsible panel under the tree)
+// -------------------------------------------------------------------------------------------------
+
+function renderPackages(): void {
+    packagesPanel.replaceChildren()
+    if (!snapshot) return
+    const list = snapshot.externalPackages
+    const locked = snapshot.readOnlyReason
+    const header = el(
+        "div",
+        { class: "header", role: "button", tabindex: "0", title: packagesCollapsed ? "Show the external packages" : "Hide the external packages" },
+        el("span", { class: "twistie" + (packagesCollapsed ? "" : " open") }),
+        el("span", { class: "title", text: "External packages" }),
+        el("span", { class: "count", text: String(list.length) })
+    )
+    const add = el("button", {
+        class: "add",
+        text: "+",
+        "aria-label": "Add package",
+        title: locked ?? "Add an .ecore file whose elements can be referenced",
+        disabled: !!locked
+    })
+    add.addEventListener("click", (e) => {
+        e.stopPropagation()
+        post({ type: "addPackage" })
+    })
+    header.append(add)
+    const toggle = () => {
+        packagesCollapsed = !packagesCollapsed
+        persist()
+        renderPackages()
+    }
+    header.addEventListener("click", toggle)
+    header.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            toggle()
+        }
+    })
+    packagesPanel.append(header)
+    if (packagesCollapsed) return
+    const body = el("div", { class: "list" })
+    if (!list.length) body.append(el("div", { class: "placeholder", text: "No external package." }))
+    for (const p of list) {
+        const blocked = p.referenced ? `Cannot remove: ${p.label} is referenced by this file` : locked
+        const remove = el("button", {
+            class: "remove",
+            text: "×",
+            "aria-label": `Remove ${p.label}`,
+            title: blocked ?? `Remove ${p.label} from the external packages`,
+            disabled: !!blocked
+        })
+        if (!blocked) remove.addEventListener("click", () => post({ type: "removePackage", uri: p.uri }))
+        const row = el(
+            "div",
+            { class: "pkg" + (p.missing ? " missing" : ""), title: p.path },
+            icon("package"),
+            el("span", { class: "name", text: p.label }),
+            el("span", { class: "path", text: p.path }),
+            remove
+        )
+        body.append(row)
+    }
+    packagesPanel.append(body)
 }
 
 function renderEmptyTree(): void {
@@ -901,7 +972,8 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
                     expanded = new Set(state.expanded.filter((id) => nodesById.has(id)))
                     selectedId = state.selected && nodesById.has(state.selected) ? state.selected : null
                     treeWidth = state.treeWidth
-                    if (treeWidth) tree.style.flexBasis = treeWidth + "px"
+                    if (treeWidth) left.style.flexBasis = treeWidth + "px"
+                    packagesCollapsed = !!state.packagesCollapsed
                 }
                 if (!state || !state.expanded.length) {
                     for (const r of snapshot.roots) {
@@ -921,6 +993,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
             }
             renderBanner()
             renderTree()
+            renderPackages()
             persist()
             if (selectedId && message.selectId !== undefined) {
                 // selection chosen by the host (go to declaration, new element): make sure it is visible

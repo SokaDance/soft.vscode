@@ -50,6 +50,22 @@ function handle(message) {
         case "openExternal":
             console.log("openExternal (not available in the harness):", message.uri)
             return
+        case "addPackage": {
+            if (!message.uri) return [{ type: "error", message: "(harness) no file picker here: post { type: \"addPackage\", uri } instead" }]
+            try {
+                model.addExternalPackage(message.uri)
+            } catch (e) {
+                return [{ type: "error", message: e.message }]
+            }
+            return [{ type: "model", snapshot: model.snapshot() }]
+        }
+        case "removePackage":
+            try {
+                model.removeExternalPackage(message.uri)
+            } catch (e) {
+                return [{ type: "error", message: e.message }]
+            }
+            return [{ type: "model", snapshot: model.snapshot() }]
         case "openText":
             return [{ type: "error", message: "(harness) Open as Text is not available here" }]
         case "edit": {
