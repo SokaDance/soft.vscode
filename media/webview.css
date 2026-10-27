@@ -351,6 +351,23 @@ textarea:disabled {
 .chip button.move {
     font-size: 0.8em;
 }
+.chip.local {
+    cursor: pointer;
+}
+.with-jump {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.with-jump select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.with-jump button.jump {
+    flex: 0 0 auto;
+    padding: 0 6px;
+    line-height: 1.6;
+}
 
 /* ---- context menu ---------------------------------------------------------------------------- */
 #menu {

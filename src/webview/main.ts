@@ -317,6 +317,10 @@ tree.addEventListener("click", (e) => {
     const twistie = (e.target as Element).closest(".twistie")
     if (twistie) {
         toggle(id)
+    } else if (e.ctrlKey || e.metaKey) {
+        const typeId = nodesById.get(id)?.typeId
+        if (typeId) goTo(typeId)
+        else select(id)
     } else {
         select(id)
     }
@@ -416,6 +420,17 @@ function reveal(id: string): void {
         expanded.add(p.id)
         p = parentOf.get(p.id) ?? null
     }
+}
+
+/** Selects `id` in the tree, expanding its ancestors and scrolling it into view (external objects are ignored). */
+function goTo(id: string): void {
+    if (!nodesById.has(id)) return
+    reveal(id)
+    renderTree()
+    select(id)
+    const row = tree.querySelector(`.row[data-id="${CSS.escape(id)}"]`)
+    row?.scrollIntoView({ block: "nearest" })
+    tree.focus()
 }
 
 function select(id: string | null): void {
@@ -723,7 +738,25 @@ function renderSingleReference(id: string, d: PropertyDescriptor, disabled: bool
     select.append(...candidateOptions(d, new Set()))
     select.value = current ? current.id : ""
     select.addEventListener("change", () => edit({ type: "setRef", id, feature: d.feature, target: select.value || null }))
-    return select
+    if (!current || !isLocal(current)) return select
+    const jump = el("button", { class: "jump", title: `Go to ${current.label} (Ctrl+Click)`, text: "→", "aria-label": `Go to ${current.label}` })
+    jump.addEventListener("click", () => goTo(current.id))
+    select.addEventListener("mousedown", (e) => {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            goTo(current.id)
+        }
+    })
+    return el("div", { class: "with-jump" }, select, jump)
+}
+
+function isLocal(ref: Ref): boolean {
+    return !ref.id.startsWith("uri:")
+}
+
+function jumpTitle(ref: Ref): string | undefined {
+    const detail = readableFragment(ref.detail)
+    return isLocal(ref) ? (detail ? `${detail}\nCtrl+Click to go to the declaration` : "Ctrl+Click to go to the declaration") : detail
 }
 
 function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolean): HTMLElement {
@@ -732,7 +765,12 @@ function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolea
     const chips = el("div", { class: "chips" })
     const commit = (next: Ref[]) => edit({ type: "setRefs", id, feature: d.feature, targets: next.map((r) => r.id) })
     values.forEach((ref, i) => {
-        const chip = el("span", { class: "chip", title: readableFragment(ref.detail) }, el("span", { text: ref.label }))
+        const chip = el("span", { class: "chip" + (isLocal(ref) ? " local" : ""), title: jumpTitle(ref) }, el("span", { text: ref.label }))
+        if (isLocal(ref)) {
+            chip.addEventListener("click", (e) => {
+                if ((e.ctrlKey || e.metaKey) && !(e.target as Element).closest("button")) goTo(ref.id)
+            })
+        }
         if (!disabled) {
             if (i > 0) {
                 const up = el("button", { class: "move", title: "Move up", text: "▲" })

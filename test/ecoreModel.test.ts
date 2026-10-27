@@ -67,6 +67,9 @@ describe("EcoreModel", () => {
         const shop = pkg.children[0]
         expect(shop.children.map((c) => c.label)).toEqual(["name : EString", "items : Item"])
         expect(shop.children[1].detail).toBe("[0..*] containment")
+        // typeId points to the local declaration of the type; external types (EString) have none
+        expect(shop.children[1].typeId).toBe(pkg.children[1].id)
+        expect(shop.children[0].typeId).toBeUndefined()
         expect(find(snapshot.roots, "BLUE = 1").icon).toBe("literal")
         // the transient eFactoryInstance must not show up
         expect(pkg.children.some((c) => c.eClass === "EFactory")).toBe(false)

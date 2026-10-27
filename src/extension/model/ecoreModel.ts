@@ -27,7 +27,8 @@ import {
     type EReference,
     type EResource,
     type EResourceSet,
-    type EStructuralFeature
+    type EStructuralFeature,
+    type ETypedElement
 } from "@masagroup/ecore"
 import type {
     ChildOption,
@@ -41,6 +42,10 @@ import type {
     TreeNode
 } from "../../shared/protocol"
 import { defaultName, detailFor, featureLabel, iconFor, labelFor } from "./labels"
+
+function isETypedElement(obj: EObject): obj is ETypedElement {
+    return typeof (obj as Partial<ETypedElement>).getEType === "function"
+}
 
 export interface ApplyResult {
     /** Object to select after the edit (null to clear the selection). */
@@ -184,7 +189,17 @@ export class EcoreModel {
         const detail = detailFor(obj)
         if (detail) node.detail = detail
         if (isEClass(obj) && (obj.isAbstract() || obj.isInterface())) node.abstract = true
+        const typeId = this.declarationIdOf(obj)
+        if (typeId) node.typeId = typeId
         return node
+    }
+
+    /** Id of the local declaration a node points to: the eType of a typed element, or the first super type of a class. */
+    private declarationIdOf(obj: EObject): string | undefined {
+        let target: EObject | null | undefined
+        if (isEClass(obj)) target = obj.getESuperTypes().isEmpty() ? null : obj.getESuperTypes().get(0)
+        else if (isETypedElement(obj)) target = obj.getEType()
+        return target ? this.idOf.get(target) : undefined
     }
 
     private childOptions(): Record<string, ChildOption[]> {

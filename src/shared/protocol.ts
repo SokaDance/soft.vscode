@@ -26,6 +26,8 @@ export interface TreeNode {
     abstract?: boolean
     /** Name of the containment feature holding this node (undefined for roots). */
     feature?: string
+    /** Id of the declaration this node points to (eType of a typed element, first super type of a class), when it lives in this document. */
+    typeId?: string
     children: TreeNode[]
 }
 
