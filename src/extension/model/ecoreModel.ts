@@ -93,8 +93,12 @@ export class EcoreModel {
         let fatal: ModelDiagnostic | undefined
         try {
             resource.loadFromString(text)
+            // since @masagroup/ecore 1.8, a malformed document is the first error of the resource
+            // (decoding stops there) instead of an exception
+            const malformed = resource.getErrors().toArray().find((e) => isXmlSyntaxError(e.message))
+            if (malformed) fatal = toFatalDiagnostic(malformed.message)
         } catch (e) {
-            fatal = toFatalDiagnostic(e)
+            fatal = toFatalDiagnostic(e instanceof Error ? e.message : String(e))
         }
 
         if (fatal && this.hasGoodModel) {
@@ -706,13 +710,20 @@ function fromLiteral(type: EDataType, literal: string): unknown {
 function collectDiagnostics(resource: EResource): ModelDiagnostic[] {
     // the XML decoder reports 0-based sax positions; diagnostics are 1-based like the fatal ones
     const result: ModelDiagnostic[] = []
-    for (const e of resource.getErrors()) result.push({ message: e.message, line: (e.line ?? 0) + 1, column: (e.column ?? 0) + 1, severity: "error" })
+    for (const e of resource.getErrors()) {
+        if (isXmlSyntaxError(e.message)) continue // reported as the fatal diagnostic
+        result.push({ message: e.message, line: (e.line ?? 0) + 1, column: (e.column ?? 0) + 1, severity: "error" })
+    }
     for (const w of resource.getWarnings()) result.push({ message: w.message, line: (w.line ?? 0) + 1, column: (w.column ?? 0) + 1, severity: "warning" })
     return result
 }
 
-function toFatalDiagnostic(e: unknown): ModelDiagnostic {
-    const message = e instanceof Error ? e.message : String(e)
+/** sax reports its syntax errors as "message\nLine: N\nColumn: M\nChar: c" */
+function isXmlSyntaxError(message: string): boolean {
+    return /\nLine:\s*\d+/.test(message)
+}
+
+function toFatalDiagnostic(message: string): ModelDiagnostic {
     // sax reports "message\nLine: N\nColumn: M\nChar: c"
     const line = /Line:\s*(\d+)/.exec(message)
     const column = /Column:\s*(\d+)/.exec(message)
