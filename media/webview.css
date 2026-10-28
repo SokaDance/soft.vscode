@@ -535,14 +535,14 @@ textarea:disabled {
 }
 
 /* ---- Ctrl held: anything leading to a declaration looks like a link ------------------------- */
-body.ctrl .row.linkable:hover .label,
+body.ctrl .row .type-link:hover,
 body.ctrl .chip:hover > span:first-child,
 body.ctrl .with-jump select:hover {
     color: var(--vscode-textLink-foreground, #3794ff);
     text-decoration: underline;
     cursor: pointer;
 }
-body.ctrl #tree:focus .row.linkable.selected:hover .label {
+body.ctrl #tree:focus .row.selected .type-link:hover {
     color: inherit;
 }
 /* a modified click must reach the chip, never its remove/move buttons */

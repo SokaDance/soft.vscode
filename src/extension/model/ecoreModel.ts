@@ -35,6 +35,7 @@ import type {
     ChildOption,
     EditCommand,
     ExternalPackage,
+    LabelLink,
     ModelDiagnostic,
     ModelSnapshot,
     ObjectProperties,
@@ -357,8 +358,8 @@ export class EcoreModel {
         const detail = detailFor(obj)
         if (detail) node.detail = detail
         if (isEClass(obj) && (obj.isAbstract() || obj.isInterface())) node.abstract = true
-        const typeId = this.declarationIdOf(obj)
-        if (typeId) node.typeId = typeId
+        const links = this.labelLinks(obj, node.label)
+        if (links.length) node.links = links
         const values = attributeValues(obj)
         if (values) node.values = values
         return node
@@ -368,12 +369,28 @@ export class EcoreModel {
      * Declaration a node points to: the eType of a typed element, or the first super type of a class.
      * A local id, or "uri:<absolute uri>" when it lives in another resource.
      */
-    private declarationIdOf(obj: EObject): string | undefined {
-        let target: EObject | null | undefined
-        if (isEClass(obj)) target = obj.getESuperTypes().isEmpty() ? null : obj.getESuperTypes().get(0)
-        else if (isETypedElement(obj)) target = obj.getEType()
-        if (!target) return undefined
-        return this.idOf.get(target) ?? "uri:" + EcoreUtils.getURI(target).toString()
+    private labelLinks(obj: EObject, label: string): LabelLink[] {
+        const links: LabelLink[] = []
+        if (isEClass(obj)) {
+            // "Name -> Super1, Super2"
+            let offset = (obj.getName() ?? "").length + " -> ".length
+            for (const s of obj.getESuperTypes().toArray()) {
+                const name = s?.getName() ?? "?"
+                if (s) links.push({ start: offset, end: offset + name.length, target: this.targetOf(s) })
+                offset += name.length + ", ".length
+            }
+        } else if (isETypedElement(obj)) {
+            // "name : Type", or "op(...) : Type": the type ends the label
+            const type = obj.getEType()
+            const name = type?.getName()
+            if (type && name && label.endsWith(" : " + name)) links.push({ start: label.length - name.length, end: label.length, target: this.targetOf(type) })
+        }
+        return links
+    }
+
+    /** Id of a declaration: local id, or "uri:<absolute uri>" when it lives in another resource. */
+    private targetOf(obj: EObject): string {
+        return this.idOf.get(obj) ?? "uri:" + EcoreUtils.getURI(obj).toString()
     }
 
     private childOptions(): Record<string, ChildOption[]> {

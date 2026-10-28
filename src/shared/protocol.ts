@@ -26,11 +26,18 @@ export interface TreeNode {
     abstract?: boolean
     /** Name of the containment feature holding this node (undefined for roots). */
     feature?: string
-    /** Declaration this node points to (eType of a typed element, first super type of a class): a local id, or "uri:<absolute uri>". */
-    typeId?: string
+    /** Parts of the label naming a declaration (the type of a typed element, each super type of a class). */
+    links?: LabelLink[]
     /** Values of the attributes set on this object, as text, keyed by feature name (searched by the tree filter). */
     values?: Record<string, string>
     children: TreeNode[]
+}
+
+/** A range of a tree label that leads to a declaration: a local id, or "uri:<absolute uri>". */
+export interface LabelLink {
+    start: number
+    end: number
+    target: string
 }
 
 export interface ChildOption {

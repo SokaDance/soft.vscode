@@ -302,15 +302,14 @@ function renderTree(): void {
                     "row" +
                     (node.id === selectedId ? " selected" : "") +
                     (hasChildren && (filter || expanded.has(node.id)) ? " expanded" : "") +
-                    (node.abstract ? " abstract" : "") +
-                    (node.typeId ? " linkable" : ""),
+                    (node.abstract ? " abstract" : ""),
                 role: "treeitem",
                 "data-id": node.id,
                 title: node.detail ? `${node.eClass} ${node.detail}` : node.eClass
             },
             el("span", { class: "twistie" + (hasChildren ? "" : " empty") }),
             icon(node.icon),
-            highlighted("label", node.label || `<${node.eClass}>`),
+            labelSpan(node),
             node.detail ? highlighted("detail", node.detail) : null,
             valueSnippet(node)
         )
@@ -433,18 +432,40 @@ function firstMatch(): string | undefined {
 /** A span showing `text`, with every occurrence of the filter (case insensitive) wrapped in <mark>. */
 function highlighted(cls: string, text: string): HTMLElement {
     const span = el("span", { class: cls })
+    appendHighlighted(span, text)
+    return span
+}
+
+function appendHighlighted(parent: HTMLElement, text: string): void {
     if (!filter) {
-        span.textContent = text
-        return span
+        parent.append(text)
+        return
     }
     const lower = text.toLowerCase()
     let from = 0
     for (let at = lower.indexOf(filter); at >= 0; at = lower.indexOf(filter, from)) {
-        if (at > from) span.append(text.slice(from, at))
-        span.append(el("mark", { text: text.slice(at, at + filter.length) }))
+        if (at > from) parent.append(text.slice(from, at))
+        parent.append(el("mark", { text: text.slice(at, at + filter.length) }))
         from = at + filter.length
     }
-    if (from < text.length) span.append(text.slice(from))
+    if (from < text.length) parent.append(text.slice(from))
+}
+
+/** The label of a tree row: type names become links (followed with Ctrl+click), filter matches are marked. */
+function labelSpan(node: TreeNode): HTMLElement {
+    const text = node.label || `<${node.eClass}>`
+    const span = el("span", { class: "label" })
+    let from = 0
+    for (const link of node.links ?? []) {
+        if (link.start < from || link.end > text.length) continue
+        appendHighlighted(span, text.slice(from, link.start))
+        const name = text.slice(link.start, link.end)
+        const part = el("span", { class: "type-link", "data-target": link.target, title: `Ctrl+Click to go to ${name}` })
+        appendHighlighted(part, name)
+        span.append(part)
+        from = link.end
+    }
+    appendHighlighted(span, text.slice(from))
     return span
 }
 
@@ -476,8 +497,9 @@ tree.addEventListener("click", (e) => {
     if (twistie) {
         toggle(id)
     } else if (e.ctrlKey || e.metaKey) {
-        const typeId = nodesById.get(id)?.typeId
-        if (typeId) goTo(typeId)
+        // only the type names of the label are links; Ctrl+click elsewhere selects as usual
+        const link = (e.target as Element).closest<HTMLElement>(".type-link")
+        if (link) goTo(link.dataset.target!)
         else select(id)
     } else {
         select(id)

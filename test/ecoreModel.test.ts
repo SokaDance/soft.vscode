@@ -68,9 +68,19 @@ describe("EcoreModel", () => {
         const shop = pkg.children[0]
         expect(shop.children.map((c) => c.label)).toEqual(["name : EString", "items : Item"])
         expect(shop.children[1].detail).toBe("[0..*] containment")
-        // typeId points to the local declaration of the type, or to the uri of an external one
-        expect(shop.children[1].typeId).toBe(pkg.children[1].id)
-        expect(shop.children[0].typeId).toBe("uri:http://www.eclipse.org/emf/2002/Ecore#//EString")
+        // the type name of the label links to its local declaration, or to the uri of an external one
+        expect(shop.children[1].links).toEqual([{ start: "items : ".length, end: "items : Item".length, target: pkg.children[1].id }])
+        expect(shop.children[0].links).toEqual([{ start: "name : ".length, end: "name : EString".length, target: "uri:http://www.eclipse.org/emf/2002/Ecore#//EString" }])
+        expect(pkg.links).toBeUndefined()
+
+        // a class links each of its super types
+        const library = newModel(LIBRARY).snapshot().roots[0]
+        const circulating = library.children.find((c) => c.label === "CirculatingItem -> Item, Lendable")!
+        const target = (label: string) => library.children.find((c) => c.label.split(" ")[0] === label)!.id
+        expect(circulating.links).toEqual([
+            { start: "CirculatingItem -> ".length, end: "CirculatingItem -> Item".length, target: target("Item") },
+            { start: "CirculatingItem -> Item, ".length, end: "CirculatingItem -> Item, Lendable".length, target: target("Lendable") }
+        ])
         expect(model.idForFragment("//Item")).toBe(pkg.children[1].id)
         expect(model.idForFragment("//Nope")).toBeUndefined()
         expect(find(snapshot.roots, "BLUE = 1").icon).toBe("literal")
