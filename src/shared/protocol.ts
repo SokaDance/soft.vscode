@@ -44,8 +44,10 @@ export interface ChildOption {
 export interface ExternalPackage {
     /** Resource URI (a file, or the nsURI of a package built into Ecorium). */
     uri: string
-    /** Readable location: the file path, or the nsURI. */
+    /** Location shown in the list: the file path relative to the document when possible, or the nsURI. */
     path: string
+    /** Full location: the absolute file path, or the nsURI. */
+    fullPath: string
     /** Names of the packages held by the resource. */
     label: string
     /** True when an element of the document points into this package: it cannot be removed. */

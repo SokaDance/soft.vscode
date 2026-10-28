@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { describe, expect, it } from "vitest"
 import type { PropertyDescriptor, Ref, TreeNode } from "../src/shared/protocol"
-import { EcoreModel, readablePath, registeredPackage, serializePackage } from "../src/extension/model/ecoreModel"
+import { EcoreModel, readablePath, registeredPackage, relativePath, serializePackage } from "../src/extension/model/ecoreModel"
 import { featureLabel } from "../src/extension/model/labels"
 
 const LIBRARY = readFileSync(new URL("../samples/library.ecore", import.meta.url), "utf8")
@@ -323,8 +323,9 @@ describe("external packages", () => {
             ["types", true, false]
         ])
         const types = list.find((p) => p.label === "types")!
-        expect(types.path.endsWith("test/fixtures/types.ecore")).toBe(true)
-        expect(types.path.startsWith("file:")).toBe(false)
+        expect(types.path).toBe("types.ecore")
+        expect(types.fullPath.endsWith("test/fixtures/types.ecore")).toBe(true)
+        expect(types.fullPath.startsWith("file:")).toBe(false)
         expect(() => model.removeExternalPackage(types.uri)).toThrow(/referenced/)
 
         // a package added by hand is not referenced, and its classes become candidates
@@ -345,6 +346,16 @@ describe("external packages", () => {
         // a file that cannot be read is refused and leaves no trace
         expect(() => model.addExternalPackage(fixtureUri("missing.ecore"))).toThrow(/Cannot load/)
         expect(model.externalPackages().length).toBe(2)
+    })
+
+    it("shows paths relative to the document when possible", () => {
+        expect(relativePath("D:/models/a/use.ecore", "D:/models/a/types.ecore")).toBe("types.ecore")
+        expect(relativePath("D:/models/a/use.ecore", "D:/models/a/sub/types.ecore")).toBe("sub/types.ecore")
+        expect(relativePath("D:/models/a/use.ecore", "D:/models/common/types.ecore")).toBe("../common/types.ecore")
+        expect(relativePath("D:/models/a/use.ecore", "d:/Models/A/types.ecore")).toBe("types.ecore")
+        expect(relativePath("D:/models/a/use.ecore", "E:/other/types.ecore")).toBe("E:/other/types.ecore")
+        expect(relativePath("/home/me/a/use.ecore", "/home/me/b/types.ecore")).toBe("../b/types.ecore")
+        expect(relativePath("D:/models/use.ecore", "http://www.eclipse.org/emf/2002/Ecore")).toBe("http://www.eclipse.org/emf/2002/Ecore")
     })
 
     it("shows file URIs as paths", () => {

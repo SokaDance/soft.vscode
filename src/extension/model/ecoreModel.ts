@@ -196,12 +196,20 @@ export class EcoreModel {
                 .map((o) => o.getName() ?? "")
                 .filter(Boolean)
             const missing = !r.isLoaded() || (r.eContents().isEmpty() && !r.getErrors().isEmpty())
-            list.push({ uri, path: readablePath(uri), label: missing ? "(not found)" : names.join(", ") || "(empty)", referenced: referenced.has(uri), missing })
+            const fullPath = readablePath(uri)
+            list.push({
+                uri,
+                path: relativePath(readablePath(this.uri.toString()), fullPath),
+                fullPath,
+                label: missing ? "(not found)" : names.join(", ") || "(empty)",
+                referenced: referenced.has(uri),
+                missing
+            })
         }
         for (const uri of referenced) {
             if (seen.has(uri)) continue
             const pkg = registeredPackage(uri)
-            if (pkg) list.push({ uri, path: uri, label: pkg.getName() ?? uri, referenced: true, builtin: true })
+            if (pkg) list.push({ uri, path: uri, fullPath: uri, label: pkg.getName() ?? uri, referenced: true, builtin: true })
         }
         return list.sort((a, b) => a.path.localeCompare(b.path))
     }
@@ -819,6 +827,23 @@ export function readablePath(uri: string): string {
     } catch {
         return path
     }
+}
+
+/**
+ * `target` relative to the folder of `document` ("types.ecore", "../common/types.ecore"), both being
+ * absolute paths with "/" separators. Unchanged when they share no root (another drive, a URI).
+ */
+export function relativePath(document: string, target: string): string {
+    const from = document.split("/").slice(0, -1)
+    const to = target.split("/")
+    // only paths on the same root ("D:", or "" for "/home/...") can be made relative
+    if (!from.length || from[0].toLowerCase() !== to[0].toLowerCase()) return target
+    // Windows paths are case insensitive: compare folders that way when there is a drive letter
+    const same = /^[A-Za-z]:$/.test(from[0]) ? (a: string, b: string) => a.toLowerCase() === b.toLowerCase() : (a: string, b: string) => a === b
+    let common = 0
+    while (common < from.length && common < to.length - 1 && same(from[common], to[common])) common++
+    const up = from.length - common
+    return [...Array<string>(up).fill(".."), ...to.slice(common)].join("/")
 }
 
 function originOf(obj: EObject): string {

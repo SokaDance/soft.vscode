@@ -28,7 +28,7 @@ The model is loaded, edited and serialized with [Soft TS](https://github.com/mas
   annotation details...). Matches are highlighted in the tree and in the properties; `Enter` selects the first one.
 - **Open as Text** (toolbar or editor title) opens the XMI on the element selected in the tree.
 - **External packages** panel under the tree: the `.ecore` files and built-in packages the document refers
-  to, with their full path. `+` loads another file so its elements become reference candidates; `×` forgets
+  to, with their path relative to the document (full path in the tooltip); click one to open it. `+` loads another file so its elements become reference candidates; `×` forgets
   a package again, and is greyed out while an element of the document still points into it.
 - **Plain text underneath**: the editor writes standard XMI back into the text document, so **undo/redo,
   save, hot exit and source control** are the regular VS Code ones. `Open as Text` switches to the XML

@@ -374,15 +374,34 @@ function renderPackages(): void {
             title: blocked ?? `Remove ${p.label} from the external packages`,
             disabled: !!blocked
         })
-        if (!blocked) remove.addEventListener("click", () => post({ type: "removePackage", uri: p.uri }))
+        remove.addEventListener("click", (e) => {
+            e.stopPropagation()
+            if (!blocked) post({ type: "removePackage", uri: p.uri })
+        })
+        const openable = !p.missing
         const row = el(
             "div",
-            { class: "pkg" + (p.missing ? " missing" : ""), title: p.path },
+            {
+                class: "pkg" + (p.missing ? " missing" : "") + (openable ? " openable" : ""),
+                title: openable ? `${p.fullPath}\nClick to open` : `${p.fullPath}\nThe file cannot be read`,
+                role: openable ? "button" : undefined,
+                tabindex: openable ? "0" : undefined
+            },
             icon("package"),
             el("span", { class: "name", text: p.label }),
             el("span", { class: "path", text: p.path }),
             remove
         )
+        if (openable) {
+            const open = () => post({ type: "openExternal", uri: p.uri })
+            row.addEventListener("click", open)
+            row.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    open()
+                }
+            })
+        }
         body.append(row)
     }
     packagesPanel.append(body)
