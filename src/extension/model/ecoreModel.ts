@@ -44,6 +44,7 @@ import type {
     TreeNode
 } from "../../shared/protocol"
 import { defaultName, detailFor, featureLabel, iconFor, labelFor } from "./labels"
+import { locateElement, type ContainmentStep, type TextSpan } from "./xmiLocator"
 
 function isETypedElement(obj: EObject): obj is ETypedElement {
     return typeof (obj as Partial<ETypedElement>).getEType === "function"
@@ -283,6 +284,21 @@ export class EcoreModel {
     /** Editing is refused while the text is broken or contains constructs Soft TS cannot round-trip. */
     isReadOnly(): boolean {
         return !!this.readOnlyReason || !!this.fatal || this.diagnostics.some((d) => d.severity === "error")
+    }
+
+    /** Where the start tag of object `id` is in `text`, the XMI of the document. */
+    locate(id: string, text: string): TextSpan | undefined {
+        let obj = this.objectOf.get(id)
+        if (!obj) return undefined
+        const steps: ContainmentStep[] = []
+        for (let container = obj.eContainer(); container; container = obj.eContainer()) {
+            const f = obj.eContainmentFeature()
+            const index = f.isMany() ? (container.eGet(f) as EList<EObject>).toArray().indexOf(obj) : 0
+            steps.unshift({ feature: f.getName(), index })
+            obj = container
+        }
+        const rootIndex = this.resource.eContents().toArray().indexOf(obj)
+        return rootIndex < 0 ? undefined : locateElement(text, rootIndex, steps)
     }
 
     /** Id of the object at `fragment` (e.g. "//Library/name"), if any. */

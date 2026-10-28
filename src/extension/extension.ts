@@ -28,7 +28,7 @@ export function activate(context: vscode.ExtensionContext): void {
             const target = uri ?? vscode.window.tabGroups.activeTabGroup.activeTab?.input
             const resolved = target instanceof vscode.Uri ? target : (target as { uri?: vscode.Uri } | undefined)?.uri
             if (!resolved) return
-            await vscode.commands.executeCommand("vscode.openWith", resolved, "default")
+            await provider.openAsText(resolved)
         }),
         vscode.commands.registerCommand("ecorium.reload", (uri?: vscode.Uri) => {
             const target = uri ?? (vscode.window.tabGroups.activeTabGroup.activeTab?.input as { uri?: vscode.Uri } | undefined)?.uri

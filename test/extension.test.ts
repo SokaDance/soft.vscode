@@ -20,7 +20,11 @@ function fakeDocument(text: string) {
         uri: Uri.file("C:/tmp/p.ecore"),
         eol: EndOfLine.LF,
         lineCount: text.split("\n").length,
-        getText: () => text
+        getText: () => text,
+        positionAt: (offset: number) => {
+            const before = text.slice(0, offset).split("\n")
+            return { line: before.length - 1, character: before[before.length - 1].length }
+        }
     }
 }
 
@@ -83,6 +87,40 @@ describe("extension activation", () => {
         const last = posted[posted.length - 1] as { type: string; object: { label: string } }
         expect(last.type).toBe("properties")
         expect(last.object.label).toBe("B")
+    })
+
+    it("opens the text on the selected element", async () => {
+        const provider = registrations.customEditors.get(VIEW_TYPE) as Provider
+        const { panel, send, posted } = fakePanel()
+        const document = fakeDocument(SAMPLE)
+        await provider.resolveCustomTextEditor(document, panel)
+        const calls = (commands.executeCommand as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        const tick = () => new Promise((r) => setTimeout(r, 0))
+        send({ type: "ready" })
+        await tick()
+        const snapshot = (posted.find((m) => (m as { type: string }).type === "model") as { snapshot: { roots: { id: string; children: { id: string }[] }[] } }).snapshot
+
+        // nothing selected: the text opens as usual
+        send({ type: "select", id: null })
+        calls.length = 0
+        send({ type: "openText" })
+        await tick()
+        expect(calls[0]).toEqual(["vscode.openWith", document.uri, "default"])
+
+        // a selected class: the text opens on its start tag
+        const cls = snapshot.roots[0].children[0]
+        send({ type: "select", id: cls.id })
+        send({ type: "openText" })
+        await tick()
+        const range = (calls[1][3] as { selection: { startLine: number; startCharacter: number; endCharacter: number } }).selection
+        const line = SAMPLE.split("\n")[range.startLine]
+        expect(line.slice(range.startCharacter, range.endCharacter)).toBe("eClassifiers")
+        expect(line).toContain('name="A"')
+
+        // the editor title command goes through the same path
+        calls.length = 0
+        await (provider as unknown as { openAsText(u: Uri): Promise<void> }).openAsText(document.uri)
+        expect((calls[0][3] as { selection: unknown }).selection).toEqual(range)
     })
 
     it("adds and removes external packages", async () => {

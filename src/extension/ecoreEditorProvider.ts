@@ -26,6 +26,8 @@ class EditorSession {
     private reloadTimer: NodeJS.Timeout | undefined
     /** Fragment to select once the first webview is ready (Ctrl+Click from another document). */
     private pendingFragment: string | undefined
+    /** Object selected in the webviews, so "Open as Text" can show it. */
+    private selectedId: string | null = null
     private ready = false
 
     constructor(
@@ -36,6 +38,16 @@ class EditorSession {
         const readOnlyReason = document.uri.scheme === PACKAGE_SCHEME ? "This package is built into Ecorium and cannot be edited." : undefined
         this.model = new EcoreModel(documentUri(document), { autoName: autoNameSetting(), readOnlyReason })
         this.parse(document.getText())
+    }
+
+    /** Range of the selected object's start tag in the text, if any. */
+    selectionRange(): vscode.Range | undefined {
+        if (!this.selectedId) return undefined
+        const span = this.model.locate(this.selectedId, this.document.getText())
+        if (!span) return undefined
+        const start = this.document.positionAt(span.offset)
+        const end = this.document.positionAt(span.offset + span.length)
+        return new vscode.Range(start.line, start.character, end.line, end.character)
     }
 
     /** Selects the object at `fragment` in every webview, now or as soon as one is ready. */
@@ -82,6 +94,7 @@ class EditorSession {
                 this.ready = true
                 const selectId = this.pendingFragment ? this.model.idForFragment(this.pendingFragment) : undefined
                 this.pendingFragment = undefined
+                if (selectId) this.selectedId = selectId
                 this.post(panel, { type: "model", snapshot: this.model.snapshot(), selectId })
                 if (selectId) this.post(panel, { type: "properties", object: this.model.properties(selectId) })
                 return
@@ -110,10 +123,11 @@ class EditorSession {
                 }
                 return
             case "select":
+                this.selectedId = message.id
                 this.post(panel, { type: "properties", object: message.id ? this.model.properties(message.id) : null })
                 return
             case "openText":
-                await vscode.commands.executeCommand("vscode.openWith", this.document.uri, "default")
+                await openAsText(this.document.uri, this.selectionRange())
                 return
             case "edit": {
                 if (this.model.isReadOnly()) {
@@ -150,6 +164,7 @@ class EditorSession {
     }
 
     private broadcastModel(selectId?: string | null): void {
+        if (selectId !== undefined) this.selectedId = selectId
         const snapshot = this.model.snapshot()
         for (const panel of this.panels) {
             this.post(panel, { type: "model", snapshot, selectId })
@@ -223,6 +238,11 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
         if (fragment) this.sessions.get(target.toString())?.selectFragment(fragment)
     }
 
+    /** Opens `uri` in the text editor, on the element selected in Ecorium when there is one. */
+    async openAsText(uri: vscode.Uri): Promise<void> {
+        await openAsText(uri, this.sessions.get(uri.toString())?.selectionRange())
+    }
+
     /** Reloads the model shown for `uri` (or the active editor's document). */
     reload(uri?: vscode.Uri): void {
         const key = uri?.toString()
@@ -277,6 +297,11 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
 </body>
 </html>`
     }
+}
+
+async function openAsText(uri: vscode.Uri, selection: vscode.Range | undefined): Promise<void> {
+    if (selection) await vscode.commands.executeCommand("vscode.openWith", uri, "default", { selection })
+    else await vscode.commands.executeCommand("vscode.openWith", uri, "default")
 }
 
 /** Asks for .ecore files to add as external packages; returns their resource URIs. */

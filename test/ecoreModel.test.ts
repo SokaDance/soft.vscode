@@ -270,6 +270,29 @@ describe("EcoreModel", () => {
     })
 })
 
+describe("locate", () => {
+    it("finds the start tag of an element in the XMI", () => {
+        const model = new EcoreModel(new URI("file:///C:/tmp/library.ecore"))
+        model.load(LIBRARY)
+        const at = (label: string) => {
+            const node = find(model.snapshot().roots, label)
+            const span = model.locate(node.id, LIBRARY)!
+            const lineStart = LIBRARY.lastIndexOf("\n", span.offset) + 1
+            return { tag: LIBRARY.slice(span.offset, span.offset + span.length), line: LIBRARY.slice(lineStart, LIBRARY.indexOf("\n", span.offset)) }
+        }
+        const root = model.snapshot().roots[0]
+        expect(model.locate(root.id, LIBRARY)).toEqual({ offset: LIBRARY.indexOf("<ecore:EPackage") + 1, length: "ecore:EPackage".length })
+        const book = root.children.find((c) => /^Book\b/.test(c.label))!
+        const span = model.locate(book.id, LIBRARY)!
+        expect(LIBRARY.slice(span.offset, span.offset + span.length)).toBe("eClassifiers")
+        const title = book.children.find((c) => /^title\b/.test(c.label))!
+        const titleSpan = model.locate(title.id, LIBRARY)!
+        const titleLine = LIBRARY.slice(LIBRARY.lastIndexOf("\n", titleSpan.offset) + 1, LIBRARY.indexOf("\n", titleSpan.offset))
+        expect(titleLine).toContain('name="title"')
+        expect(at("Mystery = 0").line).toContain('name="Mystery"')
+    })
+})
+
 describe("external packages", () => {
     const fixturePath = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
     const fixtureUri = (name: string) => pathToFileURL(fixturePath(name)).href
