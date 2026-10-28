@@ -270,6 +270,20 @@ describe("EcoreModel", () => {
     })
 })
 
+describe("searchable values", () => {
+    it("sends the attributes set on each node as text", () => {
+        const model = newModel()
+        const pkg = model.snapshot().roots[0]
+        expect(pkg.values).toEqual({ name: "shop", nsURI: "http://shop", nsPrefix: "shop" })
+        const color = pkg.children.find((c) => c.label === "Color")!
+        const blue = color.children.find((c) => c.label.startsWith("BLUE"))!
+        expect(blue.values).toEqual({ name: "BLUE", value: "1" })
+        // unset attributes are left out
+        const shop = pkg.children.find((c) => c.label === "Shop")!
+        expect(shop.values).toEqual({ name: "Shop" })
+    })
+})
+
 describe("locate", () => {
     it("finds the start tag of an element in the XMI", () => {
         const model = new EcoreModel(new URI("file:///C:/tmp/library.ecore"))

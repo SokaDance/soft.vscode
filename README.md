@@ -24,7 +24,8 @@ The model is loaded, edited and serialized with [Soft TS](https://github.com/mas
 - **Keyboard**: arrows to navigate, `Delete` to delete, `F2` to rename, `Ctrl+Up/Down` to reorder,
   `Enter` to jump to the properties. `Ctrl+Click` an element, a reference chip or the `→` button next to a
   type to go to its declaration; a type from another file or from Ecore itself opens in its own editor.
-- **Filter** box to find elements by name.
+- **Filter** box to find elements by name or by the value of any attribute set on them (nsURI, instance class name,
+  annotation details...). Matches are highlighted in the tree and in the properties; `Enter` selects the first one.
 - **Open as Text** (toolbar or editor title) opens the XMI on the element selected in the tree.
 - **External packages** panel under the tree: the `.ecore` files and built-in packages the document refers
   to, with their full path. `+` loads another file so its elements become reference candidates; `×` forgets

@@ -351,6 +351,8 @@ export class EcoreModel {
         if (isEClass(obj) && (obj.isAbstract() || obj.isInterface())) node.abstract = true
         const typeId = this.declarationIdOf(obj)
         if (typeId) node.typeId = typeId
+        const values = attributeValues(obj)
+        if (values) node.values = values
         return node
     }
 
@@ -861,6 +863,26 @@ function inputFor(type: EDataType): PropertyInput | undefined {
     if (NUMBER_TYPES.has(itn)) return "number"
     if (BIG_TYPES.has(itn) || STRING_TYPES.has(itn)) return "text"
     return undefined
+}
+
+/** The attributes set on `obj`, as text keyed by feature name; undefined when none is set. */
+function attributeValues(obj: EObject): Record<string, string> | undefined {
+    let values: Record<string, string> | undefined
+    for (const f of obj.eClass().getEAllAttributes()) {
+        if (f.isTransient() || f.isDerived() || !obj.eIsSet(f)) continue
+        const type = f.getEAttributeType()
+        if (!type) continue
+        const raw = obj.eGet(f)
+        const items = f.isMany() ? (raw as EList<unknown>).toArray() : [raw]
+        const text = items
+            .map((v) => toLiteral(type, v))
+            .filter((v) => v !== null)
+            .join(", ")
+        if (!text) continue
+        values ??= {}
+        values[f.getName()] = text
+    }
+    return values
 }
 
 function toLiteral(type: EDataType, value: unknown): string | number | boolean | null {

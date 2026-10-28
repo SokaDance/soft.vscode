@@ -151,6 +151,7 @@ filterInput.addEventListener("input", () => {
     filterTimer = window.setTimeout(() => {
         filter = filterInput.value.trim().toLowerCase()
         renderTree()
+        renderProperties() // refresh the highlighted attributes
     }, 120)
 })
 filterInput.addEventListener("keydown", (e) => {
@@ -158,6 +159,16 @@ filterInput.addEventListener("keydown", (e) => {
         filterInput.value = ""
         filter = ""
         renderTree()
+        renderProperties()
+    } else if (e.key === "Enter" || e.key === "ArrowDown") {
+        // apply the pending filter now, then go to the first match
+        e.preventDefault()
+        window.clearTimeout(filterTimer)
+        filter = filterInput.value.trim().toLowerCase()
+        renderTree()
+        const id = filter ? firstMatch() : undefined
+        if (id) goTo(id)
+        else tree.focus()
     }
 })
 
@@ -238,6 +249,17 @@ interface Row {
     depth: number
 }
 
+/** Attribute values of `node` containing the filter, as [feature, value] pairs. */
+function valueMatches(node: TreeNode): [string, string][] {
+    if (!filter || !node.values) return []
+    return Object.entries(node.values).filter(([, v]) => v.toLowerCase().includes(filter))
+}
+
+/** True when `node` itself matches the filter: its label, its class name or one of its attribute values. */
+function selfMatches(node: TreeNode): boolean {
+    return node.label.toLowerCase().includes(filter) || node.eClass.toLowerCase() === filter || valueMatches(node).length > 0
+}
+
 function visibleRows(): Row[] {
     const rows: Row[] = []
     if (!snapshot) return rows
@@ -245,7 +267,7 @@ function visibleRows(): Row[] {
     if (filter) {
         matches = new Set()
         const visit = (node: TreeNode): boolean => {
-            let hit = node.label.toLowerCase().includes(filter) || node.eClass.toLowerCase() === filter
+            let hit = selfMatches(node)
             for (const c of node.children) if (visit(c)) hit = true
             if (hit) matches!.add(node.id)
             return hit
@@ -289,7 +311,8 @@ function renderTree(): void {
             el("span", { class: "twistie" + (hasChildren ? "" : " empty") }),
             icon(node.icon),
             highlighted("label", node.label || `<${node.eClass}>`),
-            node.detail ? el("span", { class: "detail", text: node.detail }) : null
+            node.detail ? highlighted("detail", node.detail) : null,
+            valueSnippet(node)
         )
         row.style.paddingLeft = 4 + depth * 16 + "px"
         fragment.append(row)
@@ -363,6 +386,29 @@ function renderPackages(): void {
         body.append(row)
     }
     packagesPanel.append(body)
+}
+
+/** For a node matched through its attribute values (not its label): "feature: …value…" with the match marked. */
+function valueSnippet(node: TreeNode): HTMLElement | null {
+    // nothing to add when the match is already visible in the label or the detail
+    if (!filter || node.label.toLowerCase().includes(filter) || node.detail?.toLowerCase().includes(filter)) return null
+    const found = valueMatches(node)
+    if (!found.length) return null
+    const [feature, value] = found[0]
+    const at = value.toLowerCase().indexOf(filter)
+    const from = Math.max(0, at - 12)
+    const to = Math.min(value.length, at + filter.length + 24)
+    const text = (from > 0 ? "…" : "") + value.slice(from, to).replace(/\s+/g, " ") + (to < value.length ? "…" : "")
+    const span = el("span", { class: "match", title: found.map(([f, v]) => `${f}: ${v}`).join("\n") }, el("span", { class: "feature", text: feature + ": " }))
+    span.append(highlighted("value", text))
+    if (found.length > 1) span.append(el("span", { class: "more", text: ` +${found.length - 1}` }))
+    return span
+}
+
+/** First node, in tree order, that matches the filter by itself. */
+function firstMatch(): string | undefined {
+    for (const { node } of visibleRows()) if (selfMatches(node)) return node.id
+    return undefined
 }
 
 /** A span showing `text`, with every occurrence of the filter (case insensitive) wrapped in <mark>. */
@@ -741,6 +787,9 @@ function renderProperties(): void {
         table.append(el("div", { class: "section", text: title }))
         for (const d of descriptors) {
             const label = el("label", { text: d.label, title: `${d.feature} : ${d.typeName}${d.many ? "[]" : ""}` })
+            // the same values as the tree filter: attributes set on the object (not their defaults)
+            const value = nodesById.get(p.id)?.values?.[d.feature]
+            if (filter && value?.toLowerCase().includes(filter)) label.classList.add("match")
             const editor = renderEditor(p.id, d)
             if (editor.id) label.setAttribute("for", editor.id)
             table.append(label, editor)

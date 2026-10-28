@@ -28,6 +28,8 @@ export interface TreeNode {
     feature?: string
     /** Declaration this node points to (eType of a typed element, first super type of a class): a local id, or "uri:<absolute uri>". */
     typeId?: string
+    /** Values of the attributes set on this object, as text, keyed by feature name (searched by the tree filter). */
+    values?: Record<string, string>
     children: TreeNode[]
 }
 
