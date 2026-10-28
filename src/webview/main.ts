@@ -288,7 +288,7 @@ function renderTree(): void {
             },
             el("span", { class: "twistie" + (hasChildren ? "" : " empty") }),
             icon(node.icon),
-            el("span", { class: "label", text: node.label || `<${node.eClass}>` }),
+            highlighted("label", node.label || `<${node.eClass}>`),
             node.detail ? el("span", { class: "detail", text: node.detail }) : null
         )
         row.style.paddingLeft = 4 + depth * 16 + "px"
@@ -363,6 +363,24 @@ function renderPackages(): void {
         body.append(row)
     }
     packagesPanel.append(body)
+}
+
+/** A span showing `text`, with every occurrence of the filter (case insensitive) wrapped in <mark>. */
+function highlighted(cls: string, text: string): HTMLElement {
+    const span = el("span", { class: cls })
+    if (!filter) {
+        span.textContent = text
+        return span
+    }
+    const lower = text.toLowerCase()
+    let from = 0
+    for (let at = lower.indexOf(filter); at >= 0; at = lower.indexOf(filter, from)) {
+        if (at > from) span.append(text.slice(from, at))
+        span.append(el("mark", { text: text.slice(at, at + filter.length) }))
+        from = at + filter.length
+    }
+    if (from < text.length) span.append(text.slice(from))
+    return span
 }
 
 function renderEmptyTree(): void {

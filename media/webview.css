@@ -351,6 +351,15 @@ textarea:disabled {
         box-shadow: none;
     }
 }
+.row mark {
+    color: inherit;
+    background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+    border-radius: 2px;
+    outline: 1px solid var(--vscode-editor-findMatchHighlightBorder, transparent);
+}
+.row.selected mark {
+    background: var(--vscode-editor-findMatchBackground, rgba(81, 92, 106, 0.6));
+}
 .row.dimmed {
     opacity: 0.45;
 }
