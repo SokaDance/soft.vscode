@@ -2,7 +2,7 @@
   "name": "ecorium",
   "displayName": "Ecorium - Ecore Model Editor",
   "description": "Tree and properties editor for EMF Ecore metamodels (.ecore), powered by Soft TS (@masagroup/ecore).",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "masagroup",
   "license": "MPL-2.0",
   "author": "MASA Group",
