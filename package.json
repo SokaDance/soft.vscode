@@ -142,7 +142,7 @@
     "lint": "npm run typecheck"
   },
   "dependencies": {
-    "@masagroup/ecore": "^1.7.2"
+    "@masagroup/ecore": "^1.8.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

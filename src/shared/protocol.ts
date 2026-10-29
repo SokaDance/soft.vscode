@@ -26,7 +26,18 @@ export interface TreeNode {
     abstract?: boolean
     /** Name of the containment feature holding this node (undefined for roots). */
     feature?: string
+    /** Parts of the label naming a declaration (the type of a typed element, each super type of a class). */
+    links?: LabelLink[]
+    /** Values of the attributes set on this object, as text, keyed by feature name (searched by the tree filter). */
+    values?: Record<string, string>
     children: TreeNode[]
+}
+
+/** A range of a tree label that leads to a declaration: a local id, or "uri:<absolute uri>". */
+export interface LabelLink {
+    start: number
+    end: number
+    target: string
 }
 
 export interface ChildOption {
@@ -34,6 +45,24 @@ export interface ChildOption {
     nsURI: string
     eClass: string
     label: string
+}
+
+/** A package living outside the edited document whose elements can be referenced. */
+export interface ExternalPackage {
+    /** Resource URI (a file, or the nsURI of a package built into Ecorium). */
+    uri: string
+    /** Location shown in the list: the file path relative to the document when possible, or the nsURI. */
+    path: string
+    /** Full location: the absolute file path, or the nsURI. */
+    fullPath: string
+    /** Names of the packages held by the resource. */
+    label: string
+    /** True when an element of the document points into this package: it cannot be removed. */
+    referenced: boolean
+    /** Package built into Ecorium (Ecore itself). */
+    builtin?: boolean
+    /** The file could not be loaded. */
+    missing?: boolean
 }
 
 export interface ModelDiagnostic {
@@ -52,6 +81,10 @@ export interface ModelSnapshot {
     diagnostics: ModelDiagnostic[]
     /** Set when the text could not be parsed at all: editing is disabled. */
     fatal?: ModelDiagnostic
+    /** Set when the document itself cannot be edited (e.g. a package built into Ecorium). */
+    readOnlyReason?: string
+    /** Packages outside the document: the ones it references, plus the ones added by hand. */
+    externalPackages: ExternalPackage[]
 }
 
 export type PropertyInput = "text" | "number" | "boolean" | "enum" | "reference"
@@ -100,3 +133,9 @@ export type WebviewMessage =
     | { type: "select"; id: string | null }
     | { type: "edit"; command: EditCommand }
     | { type: "openText" }
+    /** Open the declaration living outside the document: "<resource uri>#<fragment>". */
+    | { type: "openExternal"; uri: string }
+    /** Load another .ecore file so its elements can be referenced; without `uri` the host asks for the file. */
+    | { type: "addPackage"; uri?: string }
+    /** Forget an external package that nothing references any more. */
+    | { type: "removePackage"; uri: string }

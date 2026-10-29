@@ -8,7 +8,7 @@
     --icon-operation: #7a5bc4;
     --icon-parameter: #8b8b8b;
     --icon-enum: #b24a9a;
-    --icon-literal: #b24a9a;
+    --icon-literal: #d9679f;
     --icon-datatype: #2a9d9d;
     --icon-annotation: #888;
     --icon-entry: #888;
@@ -148,13 +148,131 @@ textarea:disabled {
     flex: 1;
     min-height: 0;
 }
-#tree {
+#left {
     flex: 0 0 var(--tree-width, 45%);
     min-width: 160px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+#tree {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
     outline: none;
     padding: 4px 0;
     user-select: none;
+}
+
+/* ---- external packages ----------------------------------------------------------------------- */
+#packages {
+    flex: 0 0 auto;
+    max-height: 40%;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.3)));
+}
+#packages .header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+}
+#packages .header:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+}
+#packages .header .twistie {
+    width: 16px;
+    text-align: center;
+    font-size: 10px;
+    opacity: 0.8;
+}
+#packages .header .twistie::before {
+    content: "\25B6";
+    display: inline-block;
+    transition: transform 0.08s;
+}
+#packages .header .twistie.open::before {
+    transform: rotate(90deg);
+}
+#packages .header .count {
+    font-weight: normal;
+    opacity: 0.7;
+}
+#packages .header .add {
+    margin-left: auto;
+    padding: 0 6px;
+    line-height: 1.4;
+    font-weight: normal;
+}
+#packages .list {
+    overflow: auto;
+    padding: 2px 0 4px;
+}
+#packages .placeholder {
+    padding: 2px 10px;
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+}
+#packages .pkg {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--row-height);
+    padding: 0 6px 0 10px;
+    white-space: nowrap;
+}
+#packages .pkg:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+#packages .pkg.openable {
+    cursor: pointer;
+}
+#packages .pkg.openable:hover .name {
+    text-decoration: underline;
+}
+#packages .pkg:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+}
+#packages .pkg .name {
+    flex: 0 0 auto;
+}
+#packages .pkg.missing .name {
+    color: var(--vscode-errorForeground);
+}
+#packages .pkg .path {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+#packages .pkg .remove {
+    flex: 0 0 auto;
+    padding: 0 5px;
+    line-height: 1.2;
+    background: transparent;
+    border: none;
+    color: inherit;
+    opacity: 0.8;
+    cursor: pointer;
+}
+#packages .pkg .remove:hover:not(:disabled) {
+    opacity: 1;
+    background: var(--vscode-toolbar-hoverBackground);
+}
+#packages .pkg .remove:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
 }
 #splitter {
     flex: 0 0 4px;
@@ -230,6 +348,53 @@ textarea:disabled {
     color: var(--vscode-descriptionForeground);
     font-size: 0.9em;
 }
+.row.flash {
+    animation: row-flash 1.2s ease-out;
+}
+@keyframes row-flash {
+    0%,
+    40% {
+        box-shadow: inset 0 0 0 1px var(--vscode-focusBorder);
+        background: var(--vscode-list-activeSelectionBackground);
+    }
+    100% {
+        box-shadow: none;
+    }
+}
+.row .match {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.9em;
+    color: var(--vscode-descriptionForeground);
+}
+.row.selected .match {
+    color: inherit;
+    opacity: 0.85;
+}
+.row .match .feature {
+    font-style: italic;
+}
+.row .match .more {
+    opacity: 0.7;
+}
+.prop-table label.match {
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+    border-radius: 2px;
+    padding: 0 3px;
+}
+.row mark {
+    color: inherit;
+    background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+    border-radius: 2px;
+    outline: 1px solid var(--vscode-editor-findMatchHighlightBorder, transparent);
+}
+.row.selected mark {
+    background: var(--vscode-editor-findMatchBackground, rgba(81, 92, 106, 0.6));
+}
 .row.dimmed {
     opacity: 0.45;
 }
@@ -266,11 +431,11 @@ textarea:disabled {
 .icon.generic { background: var(--icon-generic); }
 
 /* ---- empty state ----------------------------------------------------------------------------- */
-.empty {
+.empty-model {
     padding: 24px 16px;
     color: var(--vscode-descriptionForeground);
 }
-.empty p {
+.empty-model p {
     margin: 0 0 12px;
 }
 
@@ -350,6 +515,39 @@ textarea:disabled {
 }
 .chip button.move {
     font-size: 0.8em;
+}
+.chip {
+    cursor: pointer;
+}
+.with-jump {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.with-jump select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.with-jump button.jump {
+    flex: 0 0 auto;
+    padding: 0 6px;
+    line-height: 1.6;
+}
+
+/* ---- Ctrl held: anything leading to a declaration looks like a link ------------------------- */
+body.ctrl .row .type-link:hover,
+body.ctrl .chip:hover > span:first-child,
+body.ctrl .with-jump select:hover {
+    color: var(--vscode-textLink-foreground, #3794ff);
+    text-decoration: underline;
+    cursor: pointer;
+}
+body.ctrl #tree:focus .row.selected .type-link:hover {
+    color: inherit;
+}
+/* a modified click must reach the chip, never its remove/move buttons */
+body.ctrl .chip button {
+    pointer-events: none;
 }
 
 /* ---- context menu ---------------------------------------------------------------------------- */

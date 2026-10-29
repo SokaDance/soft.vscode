@@ -8,11 +8,14 @@
 // *****************************************************************************
 
 import { URI } from "@masagroup/ecore"
+import * as path from "node:path"
 import * as vscode from "vscode"
 import type { HostMessage, ModelDiagnostic, WebviewMessage } from "../shared/protocol"
-import { EcoreModel } from "./model/ecoreModel"
+import { EcoreModel, registeredPackage, serializePackage } from "./model/ecoreModel"
 
 export const VIEW_TYPE = "ecorium.ecoreEditor"
+/** Scheme of the read-only documents showing a registered package (query: its nsURI). */
+export const PACKAGE_SCHEME = "ecorium-package"
 
 /** One open document: its Soft TS model plus the webviews showing it. */
 class EditorSession {
@@ -21,13 +24,40 @@ class EditorSession {
     /** Text we last wrote ourselves, to distinguish our own edits from external ones. */
     private lastWritten: string | undefined
     private reloadTimer: NodeJS.Timeout | undefined
+    /** Fragment to select once the first webview is ready (Ctrl+Click from another document). */
+    private pendingFragment: string | undefined
+    /** Object selected in the webviews, so "Open as Text" can show it. */
+    private selectedId: string | null = null
+    private ready = false
 
     constructor(
         readonly document: vscode.TextDocument,
-        private readonly diagnostics: vscode.DiagnosticCollection
+        private readonly diagnostics: vscode.DiagnosticCollection,
+        private readonly openExternal: (uri: string) => Promise<void>
     ) {
-        this.model = new EcoreModel(documentUri(document), { autoName: autoNameSetting() })
+        const readOnlyReason = document.uri.scheme === PACKAGE_SCHEME ? "This package is built into Ecorium and cannot be edited." : undefined
+        this.model = new EcoreModel(documentUri(document), { autoName: autoNameSetting(), readOnlyReason })
         this.parse(document.getText())
+    }
+
+    /** Range of the selected object's start tag in the text, if any. */
+    selectionRange(): vscode.Range | undefined {
+        if (!this.selectedId) return undefined
+        const span = this.model.locate(this.selectedId, this.document.getText())
+        if (!span) return undefined
+        const start = this.document.positionAt(span.offset)
+        const end = this.document.positionAt(span.offset + span.length)
+        return new vscode.Range(start.line, start.character, end.line, end.character)
+    }
+
+    /** Selects the object at `fragment` in every webview, now or as soon as one is ready. */
+    selectFragment(fragment: string): void {
+        if (!this.ready) {
+            this.pendingFragment = fragment
+            return
+        }
+        const id = this.model.idForFragment(fragment)
+        if (id) this.broadcastModel(id)
     }
 
     /** Called for every text change of the document; ignores the ones we produced. */
@@ -60,20 +90,51 @@ class EditorSession {
 
     async handle(panel: vscode.WebviewPanel, message: WebviewMessage): Promise<void> {
         switch (message.type) {
-            case "ready":
-                this.post(panel, { type: "model", snapshot: this.model.snapshot() })
+            case "ready": {
+                this.ready = true
+                const selectId = this.pendingFragment ? this.model.idForFragment(this.pendingFragment) : undefined
+                this.pendingFragment = undefined
+                if (selectId) this.selectedId = selectId
+                this.post(panel, { type: "model", snapshot: this.model.snapshot(), selectId })
+                if (selectId) this.post(panel, { type: "properties", object: this.model.properties(selectId) })
+                return
+            }
+            case "openExternal":
+                await this.openExternal(message.uri)
+                return
+            case "addPackage": {
+                const uris = message.uri ? [message.uri] : await pickPackages(this.document)
+                for (const uri of uris) {
+                    try {
+                        this.model.addExternalPackage(uri)
+                    } catch (e) {
+                        this.post(panel, { type: "error", message: e instanceof Error ? e.message : String(e) })
+                    }
+                }
+                if (uris.length) this.broadcastModel()
+                return
+            }
+            case "removePackage":
+                try {
+                    this.model.removeExternalPackage(message.uri)
+                    this.broadcastModel()
+                } catch (e) {
+                    this.post(panel, { type: "error", message: e instanceof Error ? e.message : String(e) })
+                }
                 return
             case "select":
+                this.selectedId = message.id
                 this.post(panel, { type: "properties", object: message.id ? this.model.properties(message.id) : null })
                 return
             case "openText":
-                await vscode.commands.executeCommand("vscode.openWith", this.document.uri, "default")
+                await openAsText(this.document.uri, this.selectionRange())
                 return
             case "edit": {
                 if (this.model.isReadOnly()) {
-                    this.post(panel, { type: "error", message: "The model is read-only because the file has errors. Fix it in the text editor first." })
+                    this.post(panel, { type: "error", message: this.model.readOnlyReason ?? "The model is read-only because the file has errors. Fix it in the text editor first." })
                     return
                 }
+                console.log("[ecorium] edit", JSON.stringify(message.command))
                 let selectId: string | null | undefined
                 try {
                     selectId = this.model.apply(message.command).selectId
@@ -103,6 +164,7 @@ class EditorSession {
     }
 
     private broadcastModel(selectId?: string | null): void {
+        if (selectId !== undefined) this.selectedId = selectId
         const snapshot = this.model.snapshot()
         for (const panel of this.panels) {
             this.post(panel, { type: "model", snapshot, selectId })
@@ -128,6 +190,12 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
         this.diagnostics = vscode.languages.createDiagnosticCollection("ecorium")
         context.subscriptions.push(this.diagnostics)
         context.subscriptions.push(
+            vscode.workspace.registerTextDocumentContentProvider(PACKAGE_SCHEME, {
+                provideTextDocumentContent: (uri) => {
+                    const pkg = registeredPackage(uri.query)
+                    return pkg ? serializePackage(pkg) : ""
+                }
+            }),
             vscode.workspace.onDidChangeTextDocument((e) => this.sessions.get(e.document.uri.toString())?.onTextChanged()),
             vscode.workspace.onDidChangeConfiguration((e) => {
                 if (!e.affectsConfiguration("ecorium.autoNameNewElements")) return
@@ -147,6 +215,34 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
         return provider
     }
 
+    /**
+     * Opens the declaration at `uri` ("<resource>#<fragment>") in Ecorium and selects it: another .ecore
+     * file, or a package registered in Soft TS (Ecore itself) shown as a read-only document.
+     */
+    async openExternal(uri: string): Promise<void> {
+        const hash = uri.indexOf("#")
+        const resource = hash >= 0 ? uri.slice(0, hash) : uri
+        const fragment = hash >= 0 ? uri.slice(hash + 1) : ""
+        let target: vscode.Uri
+        if (resource.startsWith("file:")) {
+            target = vscode.Uri.parse(resource)
+        } else {
+            const pkg = registeredPackage(resource)
+            if (!pkg) {
+                void vscode.window.showWarningMessage(`Ecorium cannot open '${resource}'.`)
+                return
+            }
+            target = vscode.Uri.from({ scheme: PACKAGE_SCHEME, path: `/${pkg.getName()}.ecore`, query: resource })
+        }
+        await vscode.commands.executeCommand("vscode.openWith", target, VIEW_TYPE)
+        if (fragment) this.sessions.get(target.toString())?.selectFragment(fragment)
+    }
+
+    /** Opens `uri` in the text editor, on the element selected in Ecorium when there is one. */
+    async openAsText(uri: vscode.Uri): Promise<void> {
+        await openAsText(uri, this.sessions.get(uri.toString())?.selectionRange())
+    }
+
     /** Reloads the model shown for `uri` (or the active editor's document). */
     reload(uri?: vscode.Uri): void {
         const key = uri?.toString()
@@ -157,7 +253,7 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
         const key = document.uri.toString()
         let session = this.sessions.get(key)
         if (!session) {
-            session = new EditorSession(document, this.diagnostics)
+            session = new EditorSession(document, this.diagnostics, (uri) => this.openExternal(uri))
             this.sessions.set(key, session)
         }
         session.panels.add(panel)
@@ -203,10 +299,29 @@ export class EcoreEditorProvider implements vscode.CustomTextEditorProvider {
     }
 }
 
+async function openAsText(uri: vscode.Uri, selection: vscode.Range | undefined): Promise<void> {
+    if (selection) await vscode.commands.executeCommand("vscode.openWith", uri, "default", { selection })
+    else await vscode.commands.executeCommand("vscode.openWith", uri, "default")
+}
+
+/** Asks for .ecore files to add as external packages; returns their resource URIs. */
+async function pickPackages(document: vscode.TextDocument): Promise<string[]> {
+    const picked = await vscode.window.showOpenDialog({
+        canSelectMany: true,
+        openLabel: "Add package",
+        filters: { "Ecore models": ["ecore"] },
+        defaultUri: document.uri.scheme === "file" ? vscode.Uri.file(path.dirname(document.uri.fsPath)) : undefined
+    })
+    return (picked ?? []).map((u) => fileUri(u).toString())
+}
+
+/** The Soft TS URI of a file: "file:///D:/models/x.ecore" whatever the platform. */
+function fileUri(uri: vscode.Uri): URI {
+    return new URI({ scheme: "file", path: "/" + uri.fsPath.replace(/\\/g, "/").replace(/^\/+/, "") })
+}
+
 function documentUri(document: vscode.TextDocument): URI {
-    if (document.uri.scheme === "file") {
-        return new URI({ scheme: "file", path: "/" + document.uri.fsPath.replace(/\\/g, "/").replace(/^\/+/, "") })
-    }
+    if (document.uri.scheme === "file") return fileUri(document.uri)
     // untitled or virtual documents: keep the ".ecore" extension so the XMI codec is selected
     const name = document.uri.path.split("/").pop() || "model.ecore"
     return new URI({ scheme: document.uri.scheme || "untitled", path: "/" + (name.endsWith(".ecore") ? name : name + ".ecore") })

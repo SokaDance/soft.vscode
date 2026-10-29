@@ -1,8 +1,9 @@
 import { URI } from "@masagroup/ecore"
 import { readFileSync } from "node:fs"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { describe, expect, it } from "vitest"
 import type { PropertyDescriptor, Ref, TreeNode } from "../src/shared/protocol"
-import { EcoreModel } from "../src/extension/model/ecoreModel"
+import { EcoreModel, readablePath, registeredPackage, relativePath, serializePackage } from "../src/extension/model/ecoreModel"
 import { featureLabel } from "../src/extension/model/labels"
 
 const LIBRARY = readFileSync(new URL("../samples/library.ecore", import.meta.url), "utf8")
@@ -67,6 +68,21 @@ describe("EcoreModel", () => {
         const shop = pkg.children[0]
         expect(shop.children.map((c) => c.label)).toEqual(["name : EString", "items : Item"])
         expect(shop.children[1].detail).toBe("[0..*] containment")
+        // the type name of the label links to its local declaration, or to the uri of an external one
+        expect(shop.children[1].links).toEqual([{ start: "items : ".length, end: "items : Item".length, target: pkg.children[1].id }])
+        expect(shop.children[0].links).toEqual([{ start: "name : ".length, end: "name : EString".length, target: "uri:http://www.eclipse.org/emf/2002/Ecore#//EString" }])
+        expect(pkg.links).toBeUndefined()
+
+        // a class links each of its super types
+        const library = newModel(LIBRARY).snapshot().roots[0]
+        const circulating = library.children.find((c) => c.label === "CirculatingItem -> Item, Lendable")!
+        const target = (label: string) => library.children.find((c) => c.label.split(" ")[0] === label)!.id
+        expect(circulating.links).toEqual([
+            { start: "CirculatingItem -> ".length, end: "CirculatingItem -> Item".length, target: target("Item") },
+            { start: "CirculatingItem -> Item, ".length, end: "CirculatingItem -> Item, Lendable".length, target: target("Lendable") }
+        ])
+        expect(model.idForFragment("//Item")).toBe(pkg.children[1].id)
+        expect(model.idForFragment("//Nope")).toBeUndefined()
         expect(find(snapshot.roots, "BLUE = 1").icon).toBe("literal")
         // the transient eFactoryInstance must not show up
         expect(pkg.children.some((c) => c.eClass === "EFactory")).toBe(false)
@@ -232,6 +248,21 @@ describe("EcoreModel", () => {
         expect(model.isReadOnly()).toBe(true)
     })
 
+    it("shows the Ecore package itself as a read-only model", () => {
+        const pkg = registeredPackage("http://www.eclipse.org/emf/2002/Ecore")!
+        expect(pkg.getName()).toBe("ecore")
+        expect(registeredPackage("http://nowhere")).toBeNull()
+        const text = serializePackage(pkg)
+        expect(text).toContain('name="EString"')
+        const model = new EcoreModel(new URI("ecorium-package:/ecore.ecore"), { readOnlyReason: "built in" })
+        expect(model.load(text)).toBe(true)
+        expect(model.getDiagnostics()).toEqual([])
+        expect(model.isReadOnly()).toBe(true)
+        expect(model.snapshot().readOnlyReason).toBe("built in")
+        const eString = model.snapshot().roots[0].children.find((c) => /^EString\b/.test(c.label))!
+        expect(model.idForFragment("//EString")).toBe(eString.id)
+    })
+
     it("round-trips the complex library sample", () => {
         const model = new EcoreModel(new URI("file:///C:/tmp/library.ecore"))
         expect(model.load(LIBRARY)).toBe(true)
@@ -246,6 +277,101 @@ describe("EcoreModel", () => {
         const reloaded = new EcoreModel(new URI("file:///C:/tmp/library.ecore"))
         expect(reloaded.load(model.serialize())).toBe(true)
         expect(reloaded.getDiagnostics()).toEqual([])
+    })
+})
+
+describe("searchable values", () => {
+    it("sends the attributes set on each node as text", () => {
+        const model = newModel()
+        const pkg = model.snapshot().roots[0]
+        expect(pkg.values).toEqual({ name: "shop", nsURI: "http://shop", nsPrefix: "shop" })
+        const color = pkg.children.find((c) => c.label === "Color")!
+        const blue = color.children.find((c) => c.label.startsWith("BLUE"))!
+        expect(blue.values).toEqual({ name: "BLUE", value: "1" })
+        // unset attributes are left out
+        const shop = pkg.children.find((c) => c.label === "Shop")!
+        expect(shop.values).toEqual({ name: "Shop" })
+    })
+})
+
+describe("locate", () => {
+    it("finds the start tag of an element in the XMI", () => {
+        const model = new EcoreModel(new URI("file:///C:/tmp/library.ecore"))
+        model.load(LIBRARY)
+        const at = (label: string) => {
+            const node = find(model.snapshot().roots, label)
+            const span = model.locate(node.id, LIBRARY)!
+            const lineStart = LIBRARY.lastIndexOf("\n", span.offset) + 1
+            return { tag: LIBRARY.slice(span.offset, span.offset + span.length), line: LIBRARY.slice(lineStart, LIBRARY.indexOf("\n", span.offset)) }
+        }
+        const root = model.snapshot().roots[0]
+        expect(model.locate(root.id, LIBRARY)).toEqual({ offset: LIBRARY.indexOf("<ecore:EPackage") + 1, length: "ecore:EPackage".length })
+        const book = root.children.find((c) => /^Book\b/.test(c.label))!
+        const span = model.locate(book.id, LIBRARY)!
+        expect(LIBRARY.slice(span.offset, span.offset + span.length)).toBe("eClassifiers")
+        const title = book.children.find((c) => /^title\b/.test(c.label))!
+        const titleSpan = model.locate(title.id, LIBRARY)!
+        const titleLine = LIBRARY.slice(LIBRARY.lastIndexOf("\n", titleSpan.offset) + 1, LIBRARY.indexOf("\n", titleSpan.offset))
+        expect(titleLine).toContain('name="title"')
+        expect(at("Mystery = 0").line).toContain('name="Mystery"')
+    })
+})
+
+describe("external packages", () => {
+    const fixturePath = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
+    const fixtureUri = (name: string) => pathToFileURL(fixturePath(name)).href
+
+    it("lists the referenced packages and lets unreferenced ones be added and removed", () => {
+        const text = readFileSync(fixturePath("use.ecore"), "utf8")
+        const model = new EcoreModel(new URI(fixtureUri("use.ecore")))
+        expect(model.load(text)).toBe(true)
+
+        // the super type lives in types.ecore, the attribute type in Ecore itself
+        let list = model.externalPackages()
+        expect(list.map((p) => [p.label, p.referenced, !!p.builtin]).sort()).toEqual([
+            ["ecore", true, true],
+            ["types", true, false]
+        ])
+        const types = list.find((p) => p.label === "types")!
+        expect(types.path).toBe("types.ecore")
+        expect(types.fullPath.endsWith("test/fixtures/types.ecore")).toBe(true)
+        expect(types.fullPath.startsWith("file:")).toBe(false)
+        expect(() => model.removeExternalPackage(types.uri)).toThrow(/referenced/)
+
+        // a package added by hand is not referenced, and its classes become candidates
+        model.addExternalPackage(fixtureUri("extra.ecore"))
+        list = model.externalPackages()
+        const extra = list.find((p) => p.label === "extra")!
+        expect(extra.referenced).toBe(false)
+        const thing = model.snapshot().roots[0].children[0]
+        const superTypes = model.properties(thing.id)!.props.find((d) => d.feature === "eSuperTypes")!
+        expect(superTypes.candidates!.some((c) => c.label.startsWith("Extra"))).toBe(true)
+
+        // kept when the resource set is rebuilt, gone once removed
+        model.reset(text)
+        expect(model.externalPackages().some((p) => p.label === "extra")).toBe(true)
+        model.removeExternalPackage(extra.uri)
+        expect(model.externalPackages().some((p) => p.label === "extra")).toBe(false)
+
+        // a file that cannot be read is refused and leaves no trace
+        expect(() => model.addExternalPackage(fixtureUri("missing.ecore"))).toThrow(/Cannot load/)
+        expect(model.externalPackages().length).toBe(2)
+    })
+
+    it("shows paths relative to the document when possible", () => {
+        expect(relativePath("D:/models/a/use.ecore", "D:/models/a/types.ecore")).toBe("types.ecore")
+        expect(relativePath("D:/models/a/use.ecore", "D:/models/a/sub/types.ecore")).toBe("sub/types.ecore")
+        expect(relativePath("D:/models/a/use.ecore", "D:/models/common/types.ecore")).toBe("../common/types.ecore")
+        expect(relativePath("D:/models/a/use.ecore", "d:/Models/A/types.ecore")).toBe("types.ecore")
+        expect(relativePath("D:/models/a/use.ecore", "E:/other/types.ecore")).toBe("E:/other/types.ecore")
+        expect(relativePath("/home/me/a/use.ecore", "/home/me/b/types.ecore")).toBe("../b/types.ecore")
+        expect(relativePath("D:/models/use.ecore", "http://www.eclipse.org/emf/2002/Ecore")).toBe("http://www.eclipse.org/emf/2002/Ecore")
+    })
+
+    it("shows file URIs as paths", () => {
+        expect(readablePath("file:///D:/models/a%20b.ecore")).toBe("D:/models/a b.ecore")
+        expect(readablePath("file:///home/me/x.ecore")).toBe("/home/me/x.ecore")
+        expect(readablePath("http://www.eclipse.org/emf/2002/Ecore")).toBe("http://www.eclipse.org/emf/2002/Ecore")
     })
 })
 

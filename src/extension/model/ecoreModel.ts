@@ -12,6 +12,7 @@ import {
     EcoreUtils,
     URI,
     getEcorePackage,
+    getPackageRegistry,
     isEAttribute,
     isEClass,
     isEDataType,
@@ -27,11 +28,14 @@ import {
     type EReference,
     type EResource,
     type EResourceSet,
-    type EStructuralFeature
+    type EStructuralFeature,
+    type ETypedElement
 } from "@masagroup/ecore"
 import type {
     ChildOption,
     EditCommand,
+    ExternalPackage,
+    LabelLink,
     ModelDiagnostic,
     ModelSnapshot,
     ObjectProperties,
@@ -41,6 +45,35 @@ import type {
     TreeNode
 } from "../../shared/protocol"
 import { defaultName, detailFor, featureLabel, iconFor, labelFor } from "./labels"
+import { locateElement, type ContainmentStep, type TextSpan } from "./xmiLocator"
+
+function isETypedElement(obj: EObject): obj is ETypedElement {
+    return typeof (obj as Partial<ETypedElement>).getEType === "function"
+}
+
+/** The package registered for `nsURI` (Ecore itself, or a package of the global registry), if any. */
+export function registeredPackage(nsURI: string): EPackage | null {
+    return nsURI === ECORE_NS_URI ? getEcorePackage() : getPackageRegistry().getPackage(nsURI)
+}
+
+/** XMI text of a registered package, so it can be shown like a .ecore file. */
+export function serializePackage(pkg: EPackage): string {
+    const resourceSet = new EResourceSetImpl()
+    const resource = resourceSet.createResource(new URI(`ecorium-package:/${pkg.getName()}.ecore`))
+    const copy = EcoreUtils.copy(pkg)
+    // a built-in operation without type keeps eType explicitly set to null, which would be written as
+    // <eType xsi:nil="true"/> and confuse the decoder; an unset eType is simply omitted
+    const unsetNullTypes = (obj: EObject) => {
+        if (isETypedElement(obj) && !obj.getEType()) {
+            const eType = obj.eClass().getEStructuralFeatureFromName("eType")
+            if (eType && obj.eIsSet(eType)) obj.eUnset(eType)
+        }
+        for (const child of obj.eContents()) unsetNullTypes(child)
+    }
+    unsetNullTypes(copy)
+    resource.eContents().add(copy)
+    return resource.saveToString()
+}
 
 export interface ApplyResult {
     /** Object to select after the edit (null to clear the selection). */
@@ -49,6 +82,8 @@ export interface ApplyResult {
 
 export interface EcoreModelOptions {
     autoName?: boolean
+    /** Refuse every edit, with this explanation (e.g. a package built into Ecorium). */
+    readOnlyReason?: string
 }
 
 const ECORE_NS_URI = "http://www.eclipse.org/emf/2002/Ecore"
@@ -69,13 +104,17 @@ export class EcoreModel {
     private diagnostics: ModelDiagnostic[] = []
     private fatal: ModelDiagnostic | undefined
     private hasGoodModel = false
+    /** Resources added by hand (kept when the resource set is rebuilt). */
+    private addedPackages = new Set<string>()
     autoName: boolean
+    readonly readOnlyReason: string | undefined
 
     constructor(
         private readonly uri: URI,
         options: EcoreModelOptions = {}
     ) {
         this.autoName = options.autoName ?? true
+        this.readOnlyReason = options.readOnlyReason
         this.resourceSet = new EResourceSetImpl()
         this.resource = this.resourceSet.createResource(uri)
     }
@@ -93,8 +132,12 @@ export class EcoreModel {
         let fatal: ModelDiagnostic | undefined
         try {
             resource.loadFromString(text)
+            // since @masagroup/ecore 1.8, a malformed document is the first error of the resource
+            // (decoding stops there) instead of an exception
+            const malformed = resource.getErrors().toArray().find((e) => isXmlSyntaxError(e.message))
+            if (malformed) fatal = toFatalDiagnostic(malformed.message)
         } catch (e) {
-            fatal = toFatalDiagnostic(e)
+            fatal = toFatalDiagnostic(e instanceof Error ? e.message : String(e))
         }
 
         if (fatal && this.hasGoodModel) {
@@ -124,7 +167,115 @@ export class EcoreModel {
         this.objectOf.clear()
         const ok = this.load(text)
         if (previous.size) this.rebuildIds(previous)
+        for (const uri of [...this.addedPackages]) {
+            try {
+                this.addExternalPackage(uri)
+            } catch {
+                this.addedPackages.delete(uri)
+            }
+        }
         return ok
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // External packages
+    // ---------------------------------------------------------------------------------------------
+
+    /** Packages outside the document: the loaded resources of the set, plus the built-in ones the document points to. */
+    externalPackages(): ExternalPackage[] {
+        const referenced = this.referencedResources()
+        const list: ExternalPackage[] = []
+        const seen = new Set<string>()
+        for (const r of this.resourceSet.getResources()) {
+            if (r === this.resource) continue
+            const uri = r.getURI().toString()
+            seen.add(uri)
+            const names = r
+                .eContents()
+                .toArray()
+                .filter(isENamedElement)
+                .map((o) => o.getName() ?? "")
+                .filter(Boolean)
+            const missing = !r.isLoaded() || (r.eContents().isEmpty() && !r.getErrors().isEmpty())
+            const fullPath = readablePath(uri)
+            list.push({
+                uri,
+                path: relativePath(readablePath(this.uri.toString()), fullPath),
+                fullPath,
+                label: missing ? "(not found)" : names.join(", ") || "(empty)",
+                referenced: referenced.has(uri),
+                missing
+            })
+        }
+        for (const uri of referenced) {
+            if (seen.has(uri)) continue
+            const pkg = registeredPackage(uri)
+            if (pkg) list.push({ uri, path: uri, fullPath: uri, label: pkg.getName() ?? uri, referenced: true, builtin: true })
+        }
+        return list.sort((a, b) => a.path.localeCompare(b.path))
+    }
+
+    /** Loads `uri` into the resource set so its elements become reference candidates. */
+    addExternalPackage(uri: string): void {
+        if (uri === this.uri.toString()) throw new Error("This is the edited document itself")
+        const existing = this.findResource(uri)
+        if (existing?.isLoaded() && !existing.eContents().isEmpty()) {
+            this.addedPackages.add(uri)
+            return
+        }
+        let resource: EResource | undefined
+        try {
+            resource = this.resourceSet.getResource(new URI(uri), true)
+        } catch (e) {
+            const created = this.findResource(uri)
+            if (created) this.resourceSet.getResources().remove(created)
+            throw new Error(`Cannot load '${readablePath(uri)}': ${e instanceof Error ? e.message : String(e)}`)
+        }
+        if (!resource || !resource.isLoaded() || resource.eContents().isEmpty()) {
+            if (resource) this.resourceSet.getResources().remove(resource)
+            const first = resource?.getErrors().toArray()[0]
+            throw new Error(`Cannot load '${readablePath(uri)}'${first ? ": " + first.message : ""}`)
+        }
+        this.addedPackages.add(uri)
+    }
+
+    /** Forgets the resource at `uri`; refused while an element of the document points into it. */
+    removeExternalPackage(uri: string): void {
+        if (this.referencedResources().has(uri)) throw new Error(`'${readablePath(uri)}' is referenced by this file and cannot be removed`)
+        const resource = this.findResource(uri)
+        if (resource) this.resourceSet.getResources().remove(resource)
+        this.addedPackages.delete(uri)
+    }
+
+    private findResource(uri: string): EResource | undefined {
+        return this.resourceSet
+            .getResources()
+            .toArray()
+            .find((r) => r.getURI().toString() === uri)
+    }
+
+    /** URIs of the resources (and built-in packages) that elements of the document point to. */
+    private referencedResources(): Set<string> {
+        const uris = new Set<string>()
+        try {
+            EcoreUtils.resolveAllInResource(this.resource)
+        } catch {
+            // a dangling reference stays a proxy; it still names its resource below
+        }
+        const visit = (obj: EObject) => {
+            for (const target of obj.eCrossReferences()) {
+                if (!target) continue
+                const uri = target.eIsProxy() ? EcoreUtils.getURI(target) : target.eResource()?.getURI()
+                if (!uri) continue
+                const text = uri.toString()
+                const ndx = text.indexOf("#")
+                const resourceUri = ndx >= 0 ? text.slice(0, ndx) : text
+                if (resourceUri !== this.uri.toString()) uris.add(resourceUri)
+            }
+            for (const [, child] of contents(obj)) visit(child)
+        }
+        for (const root of this.resource.eContents()) visit(root)
+        return uris
     }
 
     serialize(): string {
@@ -141,7 +292,32 @@ export class EcoreModel {
 
     /** Editing is refused while the text is broken or contains constructs Soft TS cannot round-trip. */
     isReadOnly(): boolean {
-        return !!this.fatal || this.diagnostics.some((d) => d.severity === "error")
+        return !!this.readOnlyReason || !!this.fatal || this.diagnostics.some((d) => d.severity === "error")
+    }
+
+    /** Where the start tag of object `id` is in `text`, the XMI of the document. */
+    locate(id: string, text: string): TextSpan | undefined {
+        let obj = this.objectOf.get(id)
+        if (!obj) return undefined
+        const steps: ContainmentStep[] = []
+        for (let container = obj.eContainer(); container; container = obj.eContainer()) {
+            const f = obj.eContainmentFeature()
+            const index = f.isMany() ? (container.eGet(f) as EList<EObject>).toArray().indexOf(obj) : 0
+            steps.unshift({ feature: f.getName(), index })
+            obj = container
+        }
+        const rootIndex = this.resource.eContents().toArray().indexOf(obj)
+        return rootIndex < 0 ? undefined : locateElement(text, rootIndex, steps)
+    }
+
+    /** Id of the object at `fragment` (e.g. "//Library/name"), if any. */
+    idForFragment(fragment: string): string | undefined {
+        try {
+            const obj = this.resource.getEObject(fragment)
+            return obj ? this.idOf.get(obj) : undefined
+        } catch {
+            return undefined
+        }
     }
 
     isEmpty(): boolean {
@@ -162,7 +338,9 @@ export class EcoreModel {
             childOptions: this.childOptions(),
             rootOptions: this.rootOptions(),
             diagnostics: this.diagnostics,
-            fatal: this.fatal
+            fatal: this.fatal,
+            readOnlyReason: this.readOnlyReason,
+            externalPackages: this.externalPackages()
         }
     }
 
@@ -180,7 +358,39 @@ export class EcoreModel {
         const detail = detailFor(obj)
         if (detail) node.detail = detail
         if (isEClass(obj) && (obj.isAbstract() || obj.isInterface())) node.abstract = true
+        const links = this.labelLinks(obj, node.label)
+        if (links.length) node.links = links
+        const values = attributeValues(obj)
+        if (values) node.values = values
         return node
+    }
+
+    /**
+     * Declaration a node points to: the eType of a typed element, or the first super type of a class.
+     * A local id, or "uri:<absolute uri>" when it lives in another resource.
+     */
+    private labelLinks(obj: EObject, label: string): LabelLink[] {
+        const links: LabelLink[] = []
+        if (isEClass(obj)) {
+            // "Name -> Super1, Super2"
+            let offset = (obj.getName() ?? "").length + " -> ".length
+            for (const s of obj.getESuperTypes().toArray()) {
+                const name = s?.getName() ?? "?"
+                if (s) links.push({ start: offset, end: offset + name.length, target: this.targetOf(s) })
+                offset += name.length + ", ".length
+            }
+        } else if (isETypedElement(obj)) {
+            // "name : Type", or "op(...) : Type": the type ends the label
+            const type = obj.getEType()
+            const name = type?.getName()
+            if (type && name && label.endsWith(" : " + name)) links.push({ start: label.length - name.length, end: label.length, target: this.targetOf(type) })
+        }
+        return links
+    }
+
+    /** Id of a declaration: local id, or "uri:<absolute uri>" when it lives in another resource. */
+    private targetOf(obj: EObject): string {
+        return this.idOf.get(obj) ?? "uri:" + EcoreUtils.getURI(obj).toString()
     }
 
     private childOptions(): Record<string, ChildOption[]> {
@@ -624,6 +834,35 @@ function uniqueName(base: string, siblings: EList<EObject>): string {
     }
 }
 
+/** A file URI as a path ("D:/models/types.ecore"); other URIs unchanged. */
+export function readablePath(uri: string): string {
+    if (!uri.startsWith("file:")) return uri
+    let path = uri.replace(/^file:\/\//, "")
+    if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1)
+    try {
+        return decodeURIComponent(path)
+    } catch {
+        return path
+    }
+}
+
+/**
+ * `target` relative to the folder of `document` ("types.ecore", "../common/types.ecore"), both being
+ * absolute paths with "/" separators. Unchanged when they share no root (another drive, a URI).
+ */
+export function relativePath(document: string, target: string): string {
+    const from = document.split("/").slice(0, -1)
+    const to = target.split("/")
+    // only paths on the same root ("D:", or "" for "/home/...") can be made relative
+    if (!from.length || from[0].toLowerCase() !== to[0].toLowerCase()) return target
+    // Windows paths are case insensitive: compare folders that way when there is a drive letter
+    const same = /^[A-Za-z]:$/.test(from[0]) ? (a: string, b: string) => a.toLowerCase() === b.toLowerCase() : (a: string, b: string) => a === b
+    let common = 0
+    while (common < from.length && common < to.length - 1 && same(from[common], to[common])) common++
+    const up = from.length - common
+    return [...Array<string>(up).fill(".."), ...to.slice(common)].join("/")
+}
+
 function originOf(obj: EObject): string {
     const resource = obj.eResource()
     if (!resource) return "external"
@@ -668,6 +907,26 @@ function inputFor(type: EDataType): PropertyInput | undefined {
     return undefined
 }
 
+/** The attributes set on `obj`, as text keyed by feature name; undefined when none is set. */
+function attributeValues(obj: EObject): Record<string, string> | undefined {
+    let values: Record<string, string> | undefined
+    for (const f of obj.eClass().getEAllAttributes()) {
+        if (f.isTransient() || f.isDerived() || !obj.eIsSet(f)) continue
+        const type = f.getEAttributeType()
+        if (!type) continue
+        const raw = obj.eGet(f)
+        const items = f.isMany() ? (raw as EList<unknown>).toArray() : [raw]
+        const text = items
+            .map((v) => toLiteral(type, v))
+            .filter((v) => v !== null)
+            .join(", ")
+        if (!text) continue
+        values ??= {}
+        values[f.getName()] = text
+    }
+    return values
+}
+
 function toLiteral(type: EDataType, value: unknown): string | number | boolean | null {
     if (value === null || value === undefined) return null
     if (isEEnum(type)) {
@@ -706,13 +965,20 @@ function fromLiteral(type: EDataType, literal: string): unknown {
 function collectDiagnostics(resource: EResource): ModelDiagnostic[] {
     // the XML decoder reports 0-based sax positions; diagnostics are 1-based like the fatal ones
     const result: ModelDiagnostic[] = []
-    for (const e of resource.getErrors()) result.push({ message: e.message, line: (e.line ?? 0) + 1, column: (e.column ?? 0) + 1, severity: "error" })
+    for (const e of resource.getErrors()) {
+        if (isXmlSyntaxError(e.message)) continue // reported as the fatal diagnostic
+        result.push({ message: e.message, line: (e.line ?? 0) + 1, column: (e.column ?? 0) + 1, severity: "error" })
+    }
     for (const w of resource.getWarnings()) result.push({ message: w.message, line: (w.line ?? 0) + 1, column: (w.column ?? 0) + 1, severity: "warning" })
     return result
 }
 
-function toFatalDiagnostic(e: unknown): ModelDiagnostic {
-    const message = e instanceof Error ? e.message : String(e)
+/** sax reports its syntax errors as "message\nLine: N\nColumn: M\nChar: c" */
+function isXmlSyntaxError(message: string): boolean {
+    return /\nLine:\s*\d+/.test(message)
+}
+
+function toFatalDiagnostic(message: string): ModelDiagnostic {
     // sax reports "message\nLine: N\nColumn: M\nChar: c"
     const line = /Line:\s*(\d+)/.exec(message)
     const column = /Column:\s*(\d+)/.exec(message)

@@ -29,6 +29,7 @@ interface PersistedState {
     expanded: string[]
     selected: string | null
     treeWidth?: number
+    packagesCollapsed?: boolean
 }
 
 const vscode = acquireVsCodeApi()
@@ -104,7 +105,7 @@ function edit(command: EditCommand): void {
 }
 
 function persist(): void {
-    vscode.setState({ expanded: [...expanded], selected: selectedId, treeWidth: treeWidth })
+    vscode.setState({ expanded: [...expanded], selected: selectedId, treeWidth: treeWidth, packagesCollapsed })
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -124,9 +125,12 @@ const toolbar = el(
     el("button", { class: "tool", title: "Open the XMI source in the text editor", text: "Open as Text" })
 )
 const tree = el("div", { id: "tree", tabindex: "0", role: "tree" })
+const packagesPanel = el("div", { id: "packages" })
+const left = el("div", { id: "left" }, tree, packagesPanel)
 const splitter = el("div", { id: "splitter" })
 const props = el("div", { id: "props" })
-const main = el("div", { id: "main" }, tree, splitter, props)
+const main = el("div", { id: "main" }, left, splitter, props)
+let packagesCollapsed = false
 const toastEl = el("div", { id: "toast" })
 app.append(banner, toolbar, main, toastEl)
 
@@ -147,6 +151,7 @@ filterInput.addEventListener("input", () => {
     filterTimer = window.setTimeout(() => {
         filter = filterInput.value.trim().toLowerCase()
         renderTree()
+        renderProperties() // refresh the highlighted attributes
     }, 120)
 })
 filterInput.addEventListener("keydown", (e) => {
@@ -154,6 +159,16 @@ filterInput.addEventListener("keydown", (e) => {
         filterInput.value = ""
         filter = ""
         renderTree()
+        renderProperties()
+    } else if (e.key === "Enter" || e.key === "ArrowDown") {
+        // apply the pending filter now, then go to the first match
+        e.preventDefault()
+        window.clearTimeout(filterTimer)
+        filter = filterInput.value.trim().toLowerCase()
+        renderTree()
+        const id = filter ? firstMatch() : undefined
+        if (id) goTo(id)
+        else tree.focus()
     }
 })
 
@@ -164,7 +179,7 @@ splitter.addEventListener("mousedown", (e) => {
     const onMove = (ev: MouseEvent) => {
         const rect = main.getBoundingClientRect()
         treeWidth = Math.max(160, Math.min(rect.width - 200, ev.clientX - rect.left))
-        tree.style.flexBasis = treeWidth + "px"
+        left.style.flexBasis = treeWidth + "px"
     }
     const onUp = () => {
         splitter.classList.remove("dragging")
@@ -203,6 +218,9 @@ function renderBanner(): void {
     } else if (snapshot.diagnostics.length) {
         text = `${snapshot.diagnostics.length} warning${snapshot.diagnostics.length > 1 ? "s" : ""} while loading; see the Problems view.`
         warning = true
+    } else if (snapshot.readOnlyReason) {
+        text = snapshot.readOnlyReason
+        warning = true
     }
     if (!text) return
     banner.className = "visible" + (warning ? " warning" : "")
@@ -231,6 +249,17 @@ interface Row {
     depth: number
 }
 
+/** Attribute values of `node` containing the filter, as [feature, value] pairs. */
+function valueMatches(node: TreeNode): [string, string][] {
+    if (!filter || !node.values) return []
+    return Object.entries(node.values).filter(([, v]) => v.toLowerCase().includes(filter))
+}
+
+/** True when `node` itself matches the filter: its label, its class name or one of its attribute values. */
+function selfMatches(node: TreeNode): boolean {
+    return node.label.toLowerCase().includes(filter) || node.eClass.toLowerCase() === filter || valueMatches(node).length > 0
+}
+
 function visibleRows(): Row[] {
     const rows: Row[] = []
     if (!snapshot) return rows
@@ -238,7 +267,7 @@ function visibleRows(): Row[] {
     if (filter) {
         matches = new Set()
         const visit = (node: TreeNode): boolean => {
-            let hit = node.label.toLowerCase().includes(filter) || node.eClass.toLowerCase() === filter
+            let hit = selfMatches(node)
             for (const c of node.children) if (visit(c)) hit = true
             if (hit) matches!.add(node.id)
             return hit
@@ -280,8 +309,9 @@ function renderTree(): void {
             },
             el("span", { class: "twistie" + (hasChildren ? "" : " empty") }),
             icon(node.icon),
-            el("span", { class: "label", text: node.label || `<${node.eClass}>` }),
-            node.detail ? el("span", { class: "detail", text: node.detail }) : null
+            labelSpan(node),
+            node.detail ? highlighted("detail", node.detail) : null,
+            valueSnippet(node)
         )
         row.style.paddingLeft = 4 + depth * 16 + "px"
         fragment.append(row)
@@ -290,8 +320,157 @@ function renderTree(): void {
     tree.scrollTop = scrollTop
 }
 
+// -------------------------------------------------------------------------------------------------
+// External packages (collapsible panel under the tree)
+// -------------------------------------------------------------------------------------------------
+
+function renderPackages(): void {
+    packagesPanel.replaceChildren()
+    if (!snapshot) return
+    const list = snapshot.externalPackages
+    const locked = snapshot.readOnlyReason
+    const header = el(
+        "div",
+        { class: "header", role: "button", tabindex: "0", title: packagesCollapsed ? "Show the external packages" : "Hide the external packages" },
+        el("span", { class: "twistie" + (packagesCollapsed ? "" : " open") }),
+        el("span", { class: "title", text: "External packages" }),
+        el("span", { class: "count", text: String(list.length) })
+    )
+    const add = el("button", {
+        class: "add",
+        text: "+",
+        "aria-label": "Add package",
+        title: locked ?? "Add an .ecore file whose elements can be referenced",
+        disabled: !!locked
+    })
+    add.addEventListener("click", (e) => {
+        e.stopPropagation()
+        post({ type: "addPackage" })
+    })
+    header.append(add)
+    const toggle = () => {
+        packagesCollapsed = !packagesCollapsed
+        persist()
+        renderPackages()
+    }
+    header.addEventListener("click", toggle)
+    header.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            toggle()
+        }
+    })
+    packagesPanel.append(header)
+    if (packagesCollapsed) return
+    const body = el("div", { class: "list" })
+    if (!list.length) body.append(el("div", { class: "placeholder", text: "No external package." }))
+    for (const p of list) {
+        const blocked = p.referenced ? `Cannot remove: ${p.label} is referenced by this file` : locked
+        const remove = el("button", {
+            class: "remove",
+            text: "×",
+            "aria-label": `Remove ${p.label}`,
+            title: blocked ?? `Remove ${p.label} from the external packages`,
+            disabled: !!blocked
+        })
+        remove.addEventListener("click", (e) => {
+            e.stopPropagation()
+            if (!blocked) post({ type: "removePackage", uri: p.uri })
+        })
+        const openable = !p.missing
+        const row = el(
+            "div",
+            {
+                class: "pkg" + (p.missing ? " missing" : "") + (openable ? " openable" : ""),
+                title: openable ? `${p.fullPath}\nClick to open` : `${p.fullPath}\nThe file cannot be read`,
+                role: openable ? "button" : undefined,
+                tabindex: openable ? "0" : undefined
+            },
+            icon("package"),
+            el("span", { class: "name", text: p.label }),
+            el("span", { class: "path", text: p.path }),
+            remove
+        )
+        if (openable) {
+            const open = () => post({ type: "openExternal", uri: p.uri })
+            row.addEventListener("click", open)
+            row.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    open()
+                }
+            })
+        }
+        body.append(row)
+    }
+    packagesPanel.append(body)
+}
+
+/** For a node matched through its attribute values (not its label): "feature: …value…" with the match marked. */
+function valueSnippet(node: TreeNode): HTMLElement | null {
+    // nothing to add when the match is already visible in the label or the detail
+    if (!filter || node.label.toLowerCase().includes(filter) || node.detail?.toLowerCase().includes(filter)) return null
+    const found = valueMatches(node)
+    if (!found.length) return null
+    const [feature, value] = found[0]
+    const at = value.toLowerCase().indexOf(filter)
+    const from = Math.max(0, at - 12)
+    const to = Math.min(value.length, at + filter.length + 24)
+    const text = (from > 0 ? "…" : "") + value.slice(from, to).replace(/\s+/g, " ") + (to < value.length ? "…" : "")
+    const span = el("span", { class: "match", title: found.map(([f, v]) => `${f}: ${v}`).join("\n") }, el("span", { class: "feature", text: feature + ": " }))
+    span.append(highlighted("value", text))
+    if (found.length > 1) span.append(el("span", { class: "more", text: ` +${found.length - 1}` }))
+    return span
+}
+
+/** First node, in tree order, that matches the filter by itself. */
+function firstMatch(): string | undefined {
+    for (const { node } of visibleRows()) if (selfMatches(node)) return node.id
+    return undefined
+}
+
+/** A span showing `text`, with every occurrence of the filter (case insensitive) wrapped in <mark>. */
+function highlighted(cls: string, text: string): HTMLElement {
+    const span = el("span", { class: cls })
+    appendHighlighted(span, text)
+    return span
+}
+
+function appendHighlighted(parent: HTMLElement, text: string): void {
+    if (!filter) {
+        parent.append(text)
+        return
+    }
+    const lower = text.toLowerCase()
+    let from = 0
+    for (let at = lower.indexOf(filter); at >= 0; at = lower.indexOf(filter, from)) {
+        if (at > from) parent.append(text.slice(from, at))
+        parent.append(el("mark", { text: text.slice(at, at + filter.length) }))
+        from = at + filter.length
+    }
+    if (from < text.length) parent.append(text.slice(from))
+}
+
+/** The label of a tree row: type names become links (followed with Ctrl+click), filter matches are marked. */
+function labelSpan(node: TreeNode): HTMLElement {
+    const text = node.label || `<${node.eClass}>`
+    const span = el("span", { class: "label" })
+    let from = 0
+    for (const link of node.links ?? []) {
+        if (link.start < from || link.end > text.length) continue
+        appendHighlighted(span, text.slice(from, link.start))
+        const name = text.slice(link.start, link.end)
+        const part = el("span", { class: "type-link", "data-target": link.target, title: `Ctrl+Click to go to ${name}` })
+        appendHighlighted(part, name)
+        span.append(part)
+        from = link.end
+    }
+    appendHighlighted(span, text.slice(from))
+    return span
+}
+
 function renderEmptyTree(): void {
-    const box = el("div", { class: "empty" }, el("p", { text: "This model is empty." }))
+    const box = el("div", { class: "empty-model" }, el("p", { text: "This model is empty." }))
     if (!readOnly && snapshot) {
         const select = el("select", { "aria-label": "Root element type" })
         for (const o of snapshot.rootOptions) select.append(el("option", { value: `${o.nsURI}|${o.eClass}`, text: o.eClass }))
@@ -317,6 +496,11 @@ tree.addEventListener("click", (e) => {
     const twistie = (e.target as Element).closest(".twistie")
     if (twistie) {
         toggle(id)
+    } else if (e.ctrlKey || e.metaKey) {
+        // only the type names of the label are links; Ctrl+click elsewhere selects as usual
+        const link = (e.target as Element).closest<HTMLElement>(".type-link")
+        if (link) goTo(link.dataset.target!)
+        else select(id)
     } else {
         select(id)
     }
@@ -418,6 +602,31 @@ function reveal(id: string): void {
     }
 }
 
+/** Selects `id` in the tree, expanding its ancestors and scrolling it into view; an external object is opened in its own editor. */
+function goTo(id: string): void {
+    if (id.startsWith("uri:")) {
+        post({ type: "openExternal", uri: id.slice(4) })
+        return
+    }
+    if (!nodesById.has(id)) return
+    reveal(id)
+    renderTree()
+    select(id)
+    showRow(id)
+    tree.focus()
+}
+
+/** Scrolls the row of `id` into view and flashes it, so a jump from elsewhere is easy to follow. */
+function showRow(id: string): void {
+    const row = tree.querySelector<HTMLElement>(`.row[data-id="${CSS.escape(id)}"]`)
+    if (!row) return
+    row.scrollIntoView({ block: "nearest" })
+    row.classList.remove("flash")
+    void row.offsetWidth // restart the animation when the same row is flashed twice
+    row.classList.add("flash")
+    row.addEventListener("animationend", () => row.classList.remove("flash"), { once: true })
+}
+
 function select(id: string | null): void {
     if (selectedId !== id) {
         selectedId = id
@@ -445,6 +654,15 @@ window.addEventListener("keydown", (e) => {
 })
 window.addEventListener("blur", closeMenu)
 tree.addEventListener("scroll", closeMenu)
+
+// While Ctrl (or Cmd) is held, elements that lead to a declaration are shown as links (see body.ctrl in the CSS).
+function trackModifier(e: KeyboardEvent | MouseEvent): void {
+    document.body.classList.toggle("ctrl", e.ctrlKey || e.metaKey)
+}
+window.addEventListener("keydown", trackModifier)
+window.addEventListener("keyup", trackModifier)
+window.addEventListener("mousemove", trackModifier)
+window.addEventListener("blur", () => document.body.classList.remove("ctrl"))
 
 interface MenuEntry {
     label: string
@@ -600,7 +818,7 @@ function renderProperties(): void {
     const p = properties
     props.append(
         el("h3", {}, icon(p.icon), el("span", { text: p.label || `<${p.eClass}>` })),
-        el("div", { class: "fragment", text: `${p.eClass} • ${p.fragment}` })
+        el("div", { class: "fragment", text: `${p.eClass} • ${readableFragment(p.fragment)}` })
     )
     const table = el("div", { class: "prop-table" })
     const attributes = p.props.filter((d) => d.kind === "attribute")
@@ -610,6 +828,9 @@ function renderProperties(): void {
         table.append(el("div", { class: "section", text: title }))
         for (const d of descriptors) {
             const label = el("label", { text: d.label, title: `${d.feature} : ${d.typeName}${d.many ? "[]" : ""}` })
+            // the same values as the tree filter: attributes set on the object (not their defaults)
+            const value = nodesById.get(p.id)?.values?.[d.feature]
+            if (filter && value?.toLowerCase().includes(filter)) label.classList.add("match")
             const editor = renderEditor(p.id, d)
             if (editor.id) label.setAttribute("for", editor.id)
             table.append(label, editor)
@@ -706,7 +927,7 @@ function candidateOptions(d: PropertyDescriptor, exclude: Set<string>): HTMLElem
     const build = (label: string, refs: Ref[]) => {
         if (!refs.length) return
         const group = el("optgroup", { label })
-        for (const c of refs) group.append(el("option", { value: c.id, text: c.label, title: c.detail }))
+        for (const c of refs) group.append(el("option", { value: c.id, text: c.label, title: readableFragment(c.detail) }))
         groups.push(group)
     }
     build("This model", local)
@@ -719,11 +940,47 @@ function renderSingleReference(id: string, d: PropertyDescriptor, disabled: bool
     select.append(el("option", { value: "", text: "(none)" }))
     const current = d.value as Ref | null
     const known = new Set((d.candidates ?? []).map((c) => c.id))
-    if (current && !known.has(current.id)) select.append(el("option", { value: current.id, text: current.label, title: current.detail }))
+    if (current && !known.has(current.id)) select.append(el("option", { value: current.id, text: current.label, title: readableFragment(current.detail) }))
     select.append(...candidateOptions(d, new Set()))
     select.value = current ? current.id : ""
     select.addEventListener("change", () => edit({ type: "setRef", id, feature: d.feature, target: select.value || null }))
-    return select
+    if (!current) return select
+    const jump = el("button", { class: "jump", title: `Go to ${current.label} (Ctrl+Click)`, text: "→", "aria-label": `Go to ${current.label}` })
+    jump.addEventListener("click", () => goTo(current.id))
+    select.addEventListener("mousedown", (e) => {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            goTo(current.id)
+        }
+    })
+    return el("div", { class: "with-jump" }, select, jump)
+}
+
+/** True when the Ctrl (or Cmd) modifier of a go-to-declaration click is held. */
+function isModified(e: MouseEvent): boolean {
+    return e.ctrlKey || e.metaKey
+}
+
+// Ctrl+click on a reference chip navigates to the declaration. The listener captures on the panel, so it runs
+// before the remove/move buttons of the chip and swallows the event whatever part of the chip was hit.
+for (const type of ["mousedown", "click"] as const) {
+    props.addEventListener(
+        type,
+        (e) => {
+            const target = e.target as Element
+            const chip = target.closest<HTMLElement>(".chip[data-ref]")
+            if (!chip || !isModified(e) || e.button !== 0) return
+            e.preventDefault()
+            e.stopPropagation()
+            if (type === "click") goTo(chip.dataset.ref!)
+        },
+        true
+    )
+}
+
+function jumpTitle(ref: Ref): string {
+    const detail = readableFragment(ref.detail)
+    return detail ? `${detail}\nCtrl+Click to go to the declaration` : "Ctrl+Click to go to the declaration"
 }
 
 function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolean): HTMLElement {
@@ -732,11 +989,13 @@ function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolea
     const chips = el("div", { class: "chips" })
     const commit = (next: Ref[]) => edit({ type: "setRefs", id, feature: d.feature, targets: next.map((r) => r.id) })
     values.forEach((ref, i) => {
-        const chip = el("span", { class: "chip", title: ref.detail }, el("span", { text: ref.label }))
+        // a modified click anywhere on the chip navigates: handled by the capturing listener on the panel
+        const chip = el("span", { class: "chip", title: jumpTitle(ref), "data-ref": ref.id }, el("span", { text: ref.label }))
         if (!disabled) {
             if (i > 0) {
                 const up = el("button", { class: "move", title: "Move up", text: "▲" })
-                up.addEventListener("click", () => {
+                up.addEventListener("click", (e) => {
+                    if (isModified(e)) return
                     const next = [...values]
                     ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
                     commit(next)
@@ -744,7 +1003,10 @@ function renderManyReference(id: string, d: PropertyDescriptor, disabled: boolea
                 chip.append(up)
             }
             const remove = el("button", { title: "Remove", text: "×" })
-            remove.addEventListener("click", () => commit(values.filter((_, j) => j !== i)))
+            remove.addEventListener("click", (e) => {
+                if (isModified(e)) return
+                commit(values.filter((_, j) => j !== i))
+            })
             chip.append(remove)
         }
         chips.append(chip)
@@ -782,7 +1044,7 @@ function patchProperties(next: ObjectProperties): boolean {
     const header = props.querySelector("h3 span")
     if (header) header.textContent = next.label || `<${next.eClass}>`
     const fragment = props.querySelector(".fragment")
-    if (fragment) fragment.textContent = `${next.eClass} • ${next.fragment}`
+    if (fragment) fragment.textContent = `${next.eClass} • ${readableFragment(next.fragment)}`
     properties = next
     return true
 }
@@ -809,7 +1071,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
     switch (message.type) {
         case "model": {
             snapshot = message.snapshot
-            readOnly = !!snapshot.fatal || snapshot.diagnostics.some((d) => d.severity === "error")
+            readOnly = !!snapshot.readOnlyReason || !!snapshot.fatal || snapshot.diagnostics.some((d) => d.severity === "error")
             indexNodes()
             if (firstModel) {
                 firstModel = false
@@ -818,7 +1080,8 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
                     expanded = new Set(state.expanded.filter((id) => nodesById.has(id)))
                     selectedId = state.selected && nodesById.has(state.selected) ? state.selected : null
                     treeWidth = state.treeWidth
-                    if (treeWidth) tree.style.flexBasis = treeWidth + "px"
+                    if (treeWidth) left.style.flexBasis = treeWidth + "px"
+                    packagesCollapsed = !!state.packagesCollapsed
                 }
                 if (!state || !state.expanded.length) {
                     for (const r of snapshot.roots) {
@@ -838,7 +1101,12 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
             }
             renderBanner()
             renderTree()
+            renderPackages()
             persist()
+            if (selectedId && message.selectId !== undefined) {
+                // selection chosen by the host (go to declaration, new element): make sure it is visible
+                showRow(selectedId)
+            }
             if (selectedId && message.selectId === undefined) post({ type: "select", id: selectedId })
             if (!selectedId) {
                 properties = null
@@ -861,3 +1129,17 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
 
 renderProperties()
 post({ type: "ready" })
+
+/**
+ * The URI fragment of an object percent-encodes the source of annotations and other keys, wrapped in
+ * `%...%` (e.g. `//Root/%http:%2F%2Fexample.org%`); show the escapes decoded, keeping the delimiters.
+ */
+function readableFragment(fragment: string | undefined): string | undefined {
+    return fragment?.replace(/%[0-9A-Fa-f]{2}/g, (escape) => {
+        try {
+            return decodeURIComponent(escape)
+        } catch {
+            return escape
+        }
+    })
+}
