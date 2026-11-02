@@ -14,3 +14,7 @@ esbuild.mjs
 .gitignore
 .prettierrc
 *.vsix
+docs/**
+README.md
+ARCHITECTURE.md
+CONTRIBUTING.md

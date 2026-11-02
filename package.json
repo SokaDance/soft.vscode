@@ -138,7 +138,7 @@
     "test": "vitest run",
     "icon": "node scripts/make-icon.mjs",
     "harness": "node scripts/harness.mjs",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package --no-dependencies --readme-path docs/USER_README.md",
     "lint": "npm run typecheck"
   },
   "dependencies": {
