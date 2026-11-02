@@ -16,6 +16,5 @@ esbuild.mjs
 *.vsix
 docs/**
 README.md
-README.LEGACY.md
 ARCHITECTURE.md
 CONTRIBUTING.md

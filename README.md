@@ -20,8 +20,6 @@ sword:
       # UNVERIFIED: publication on the Visual Studio Marketplace or Open VSX (no workflow of the repository does it)
 -->
 
-For the previous documentation of the project, see [README.LEGACY.md](README.LEGACY.md).
-
 # soft.vscode
 
 > Ecorium: a tree and properties editor for EMF Ecore metamodels (`.ecore` files) inside Visual Studio Code, built on the TypeScript Ecore runtime [soft.ts](https://github.com/masagroup/soft.ts) (`@masagroup/ecore`). No Java, no Eclipse.
@@ -35,7 +33,7 @@ For the previous documentation of the project, see [README.LEGACY.md](README.LEG
 | **Languages** | TypeScript (extension host and webview), CSS, Node scripts (`.mjs`) |
 | **Build systems** | npm scripts (`package.json`) with esbuild and `vsce` · no Ant, no Docker |
 
-**[Architecture](ARCHITECTURE.md)** · [Contributing](CONTRIBUTING.md) · [previous README](README.LEGACY.md) · [known issues and open questions](https://github.com/masagroup/wiki/wiki/known-issues#soft.vscode) · [repository on GitHub](https://github.com/masagroup/soft.vscode)
+**[Architecture](ARCHITECTURE.md)** · [Contributing](CONTRIBUTING.md) · [known issues and open questions](https://github.com/masagroup/wiki/wiki/known-issues#soft.vscode) · [repository on GitHub](https://github.com/masagroup/soft.vscode)
 
 ## Overview
 
@@ -89,7 +87,6 @@ Ecorium is the default editor for it.
 | build, test, debug and release the extension | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | read the page shown to users in VS Code | [docs/USER_README.md](docs/USER_README.md) |
 | see what changed in each version | [CHANGELOG.md](CHANGELOG.md) |
-| read the documentation before the rewrite to the template | [README.LEGACY.md](README.LEGACY.md) |
 
 ## Build
 
@@ -172,11 +169,10 @@ webview.
 - [Contributing](CONTRIBUTING.md): development environment, Git and Jira workflow, conventions, CI/CD.
 - [User README](docs/USER_README.md): the page of the extension shown to users in VS Code.
 - [Changelog](CHANGELOG.md): the changes of each version, also the release notes of the GitHub releases.
-- [Previous README](README.LEGACY.md): the documentation of the repository before the rewrite to the template.
 - [Known issues and open questions](https://github.com/masagroup/wiki/wiki/known-issues#soft.vscode): the known defects and open points of the repository, kept in the SWORD wiki.
 - Related repositories: [soft](https://github.com/masagroup/soft), [soft.ts](https://github.com/masagroup/soft.ts), [soft.gen](https://github.com/masagroup/soft.gen), [soft.models](https://github.com/masagroup/soft.models).
 - Transverse pages: [Ecosystem next gen](https://github.com/masagroup/wiki/wiki/ecosystem-nextgen), [Ecore models, code generation and esync](https://github.com/masagroup/wiki/wiki/esync-ecore), [Glossary](https://github.com/masagroup/wiki/wiki/glossary).
 - Repository on GitHub: [masagroup/soft.vscode](https://github.com/masagroup/soft.vscode).
-- The same documentation in the SWORD wiki: [soft.vscode](https://github.com/masagroup/wiki/wiki/soft.vscode), [architecture](https://github.com/masagroup/wiki/wiki/soft.vscode-architecture), [contributing](https://github.com/masagroup/wiki/wiki/soft.vscode-contributing), [previous README](https://github.com/masagroup/wiki/wiki/soft.vscode-legacy).
+- The same documentation in the SWORD wiki: [soft.vscode](https://github.com/masagroup/wiki/wiki/soft.vscode), [architecture](https://github.com/masagroup/wiki/wiki/soft.vscode-architecture) and [contributing](https://github.com/masagroup/wiki/wiki/soft.vscode-contributing).
 
 License: [MPL-2.0](LICENSE), Copyright (c) MASA Group.

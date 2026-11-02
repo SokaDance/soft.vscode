@@ -80,7 +80,7 @@ soft.vscode/
 ├── tsconfig.webview.json       webview and shared (DOM lib)
 ├── vitest.config.ts            aliases `vscode` to test/vscode.stub.ts
 ├── CHANGELOG.md, LICENSE, .npmrc, .vscodeignore, .prettierrc
-└── README.md, ARCHITECTURE.md, CONTRIBUTING.md, README.LEGACY.md
+└── README.md, ARCHITECTURE.md, CONTRIBUTING.md
 ```
 
 ## Architecture

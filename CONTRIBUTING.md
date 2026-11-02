@@ -53,9 +53,10 @@ Run and debug:
 - Samples: re-serialize `samples/*.ecore` with the current `@masagroup/ecore` after upgrading it (the 0.2.0 history does it).
 - The model is read-only (`EcoreModel.isReadOnly()`) when the library reports an error, so that a file Soft TS cannot round-trip
   is never overwritten: keep it that way when touching the load path.
-- Documentation: the README set (README, ARCHITECTURE, CONTRIBUTING, README.LEGACY) is the source of the
+- Documentation: the README set (README, ARCHITECTURE, CONTRIBUTING) is the source of the
   [SWORD wiki](https://github.com/masagroup/wiki/wiki/soft.vscode); keep the metadata block at the top of the README up to date.
-  The page of the extension inside VS Code is [docs/USER_README.md](docs/USER_README.md), packaged in place of the README by`n  `npm run package` (`vsce --readme-path`): keep it in step with the features, commands and settings.
+  The page of the extension inside VS Code is [docs/USER_README.md](docs/USER_README.md), packaged in place of the README by
+  `npm run package` (`vsce --readme-path`): keep it in step with the features, commands and settings.
 - User-visible changes go to [CHANGELOG.md](CHANGELOG.md) under a `## X.Y.Z` heading.
 
 ## CI/CD
