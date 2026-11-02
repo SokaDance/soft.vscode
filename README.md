@@ -87,6 +87,7 @@ Ecorium is the default editor for it.
 | see the commands, the setting and the keyboard | [Interfaces and access methods](#interfaces-and-access-methods) |
 | understand how the editor is made (host, webview, model layer) | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | build, test, debug and release the extension | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| read the page shown to users in VS Code | [docs/USER_README.md](docs/USER_README.md) |
 | see what changed in each version | [CHANGELOG.md](CHANGELOG.md) |
 | read the documentation before the rewrite to the template | [README.LEGACY.md](README.LEGACY.md) |
 
@@ -116,7 +117,7 @@ npm run package      # production build, then ecorium-<version>.vsix
 | `build` | `node esbuild.mjs --production` | minified bundles; run by `vscode:prepublish` |
 | `typecheck` / `lint` | `tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.webview.json` | `lint` is the same as `typecheck` |
 | `test` | `vitest run` | `test/**/*.test.ts`, with a stub of the `vscode` module |
-| `package` | `vsce package --no-dependencies` | `ecorium-<version>.vsix` at the root (git-ignored) |
+| `package` | `vsce package --no-dependencies --readme-path docs/USER_README.md` | `ecorium-<version>.vsix` at the root (git-ignored), with [docs/USER_README.md](docs/USER_README.md) as the page of the extension |
 | `harness` | `node scripts/harness.mjs [file.ecore] [--port 3939]` | serves the real webview against the model layer in Node, without VS Code (run `npm run compile` first); edits go to `out/harness-output.ecore` |
 | `icon` | `node scripts/make-icon.mjs` | regenerates `media/icon.png` |
 
@@ -169,6 +170,7 @@ webview.
 
 - [Architecture](ARCHITECTURE.md): position in the ecosystem, repository layout, internal structure, how it works (diagrams), dependencies.
 - [Contributing](CONTRIBUTING.md): development environment, Git and Jira workflow, conventions, CI/CD.
+- [User README](docs/USER_README.md): the page of the extension shown to users in VS Code.
 - [Changelog](CHANGELOG.md): the changes of each version, also the release notes of the GitHub releases.
 - [Previous README](README.LEGACY.md): the documentation of the repository before the rewrite to the template.
 - [Known issues and open questions](https://github.com/masagroup/wiki/wiki/known-issues#soft.vscode): the known defects and open points of the repository, kept in the SWORD wiki.

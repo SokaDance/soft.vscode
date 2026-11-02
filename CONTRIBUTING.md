@@ -55,7 +55,7 @@ Run and debug:
   is never overwritten: keep it that way when touching the load path.
 - Documentation: the README set (README, ARCHITECTURE, CONTRIBUTING, README.LEGACY) is the source of the
   [SWORD wiki](https://github.com/masagroup/wiki/wiki/soft.vscode); keep the metadata block at the top of the README up to date.
-  The README is also the page of the extension inside VS Code: keep its top useful to a user.
+  The page of the extension inside VS Code is [docs/USER_README.md](docs/USER_README.md), packaged in place of the README by`n  `npm run package` (`vsce --readme-path`): keep it in step with the features, commands and settings.
 - User-visible changes go to [CHANGELOG.md](CHANGELOG.md) under a `## X.Y.Z` heading.
 
 ## CI/CD
@@ -66,7 +66,7 @@ The two workflows run on GitHub-hosted runners (`ubuntu-latest`) and do not use 
 
 | Workflow | Triggers | What it does |
 |---|---|---|
-| `.github/workflows/build_and_test.yaml` ("Build and Test") | pull request to `master` (opened, synchronize, reopened, ready_for_review), push to `master`, `workflow_dispatch`, `workflow_call` | setup-node 22 with the npm cache and the GitHub Packages registry, `npm ci --no-fund`, `npm run typecheck`, `npm test`, `npm run build`, `npx vsce package --no-dependencies`, uploads `*.vsix` as the workflow artifact `ecorium-vsix` |
+| `.github/workflows/build_and_test.yaml` ("Build and Test") | pull request to `master` (opened, synchronize, reopened, ready_for_review), push to `master`, `workflow_dispatch`, `workflow_call` | setup-node 22 with the npm cache and the GitHub Packages registry, `npm ci --no-fund`, `npm run typecheck`, `npm test`, `npm run build`, `npm run package`, uploads `*.vsix` as the workflow artifact `ecorium-vsix` |
 | `.github/workflows/release.yaml` ("Release") | push of a tag `v*` | checks that the tag is `vX.Y.Z` or `vX.Y.Z-suffix` and equals the `package.json` version, runs Build and Test on the tagged commit, then creates the GitHub release "Ecorium X.Y.Z" with `ecorium-X.Y.Z.vsix`; the release notes are the `## X.Y.Z` section of `CHANGELOG.md` (generated notes if there is none); a tag with a suffix (`v1.0.0-rc.1`) gives a pre-release; if the release already exists, the VSIX asset is replaced |
 
 Releasing a version:
